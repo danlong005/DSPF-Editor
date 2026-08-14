@@ -1,4 +1,4 @@
-     A                                      DSPSIZ(24 80 *DS3)
+     A                                      DSPSIZ(24 80 *DS3 27 132 *DS4)
      A          R HEADER
      A                                      CA01
      A                                  1 35'Ugly Duckling'
@@ -20,6 +20,12 @@
      A                                      REFFLD(CUSTNO)
      A                                      DSPATR(UL)
      A            NEWFLD1       10A  I  4 32
+     A            DATECST        8L 0O  4 68
+     A                                      DATE
+     A                                      DATFMT(*ISO)
+     A            TIMECST        8T 0O  5 68
+     A                                      TIME
+     A                                      TIMFMT(*ISO)
      A          R CUSTOMER
      A            RECKEY         4A  H  1  1
      A                                  4  2'Customer #:'

@@ -338,3 +338,202 @@ describe(`updateSelectedFieldSidebar - constant fields`, () => {
     expect(findByDataFieldId(sidebar, `displayType`)).toBeDefined();
   });
 });
+
+describe(`parseDspSizes`, () => {
+  it(`parses a single size with a qualifier`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseDspSizes(`24 80 *DS3`)).toEqual([
+      { height: 24, width: 80, qualifier: `*DS3` },
+    ]);
+  });
+
+  it(`parses a single size with no qualifier`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseDspSizes(`24 80`)).toEqual([
+      { height: 24, width: 80, qualifier: undefined },
+    ]);
+  });
+
+  it(`parses two sizes defined together`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseDspSizes(`24 80 *DS3 27 132 *DS4`)).toEqual([
+      { height: 24, width: 80, qualifier: `*DS3` },
+      { height: 27, width: 132, qualifier: `*DS4` },
+    ]);
+  });
+
+  it(`returns an empty list for garbage input`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseDspSizes(`*DS3`)).toEqual([]);
+    expect(sandbox.parseDspSizes(``)).toEqual([]);
+  });
+});
+
+describe(`findTouchingFields`, () => {
+  function field(name: string, x: number, y: number, length: number): any {
+    return { name, position: { x, y }, length, displayType: `output`, keywords: [], conditions: [] };
+  }
+
+  function constField(name: string, x: number, y: number, value: string): any {
+    return { name, position: { x, y }, value, displayType: `const`, keywords: [], conditions: [] };
+  }
+
+  it(`flags nothing when there's a real gap between fields`, () => {
+    const sandbox = loadWebui();
+    // A occupies cols 1-5, B starts at col 7 - one blank column (6) between them.
+    const a = field(`A`, 1, 1, 5);
+    const b = field(`B`, 7, 1, 5);
+    expect(sandbox.findTouchingFields([a, b]).size).toBe(0);
+  });
+
+  it(`flags fields with zero gap (immediately touching)`, () => {
+    const sandbox = loadWebui();
+    // A occupies cols 1-5, B starts at col 6 - no blank column between them.
+    const a = field(`A`, 1, 1, 5);
+    const b = field(`B`, 6, 1, 5);
+    const conflicting = sandbox.findTouchingFields([a, b]);
+    expect(conflicting.has(a)).toBe(true);
+    expect(conflicting.has(b)).toBe(true);
+  });
+
+  it(`flags fields that actually overlap`, () => {
+    const sandbox = loadWebui();
+    const a = field(`A`, 1, 1, 5); // cols 1-5
+    const b = field(`B`, 3, 1, 5); // cols 3-7, overlaps A
+    const conflicting = sandbox.findTouchingFields([a, b]);
+    expect(conflicting.has(a)).toBe(true);
+    expect(conflicting.has(b)).toBe(true);
+  });
+
+  it(`ignores fields on different rows`, () => {
+    const sandbox = loadWebui();
+    const a = field(`A`, 1, 1, 5);
+    const b = field(`B`, 6, 2, 5); // same columns, different row
+    expect(sandbox.findTouchingFields([a, b]).size).toBe(0);
+  });
+
+  it(`ignores hidden fields`, () => {
+    const sandbox = loadWebui();
+    const a = { ...field(`A`, 1, 1, 5), displayType: `hidden` };
+    const b = field(`B`, 6, 1, 5);
+    expect(sandbox.findTouchingFields([a, b]).size).toBe(0);
+  });
+
+  it(`uses a constant's literal text length, not a field length`, () => {
+    const sandbox = loadWebui();
+    const label = constField(`LBL`, 1, 1, `Name:`); // 5 chars, cols 1-5
+    const touching = field(`F`, 6, 1, 10); // starts right where the label ends
+    const notTouching = field(`F2`, 7, 1, 10); // one blank column after the label
+
+    expect(sandbox.findTouchingFields([label, touching]).size).toBe(2);
+    expect(sandbox.findTouchingFields([label, notTouching]).size).toBe(0);
+  });
+
+  it(`floors a zero-length field at 1, matching how it actually renders`, () => {
+    const sandbox = loadWebui();
+    const referenced = field(`REF`, 1, 1, 0); // renders as 1 char wide (see getElement's floor)
+    const touching = field(`F`, 2, 1, 5); // right after that 1 rendered character
+    const notTouching = field(`F2`, 3, 1, 5);
+
+    expect(sandbox.findTouchingFields([referenced, touching]).size).toBe(2);
+    expect(sandbox.findTouchingFields([referenced, notTouching]).size).toBe(0);
+  });
+});
+
+describe(`DATE/TIME fields with no DATFMT/TIMFMT`, () => {
+  function textOf(group: any): string {
+    return group.children.find((c: any) => c.type === `Text`).config.text;
+  }
+
+  it(`falls back to *MDY when a DATE field has no DATFMT`, () => {
+    const sandbox = loadWebui();
+    const dateField = {
+      name: `DATEFLD`, type: `L`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 }, keywords: [{ name: `DATE`, value: undefined, conditions: [] }],
+    };
+    expect(textOf(sandbox.getElement(dateField, false, `FMT`))).toBe(`mm/dd/yyyy`);
+  });
+
+  it(`falls back to *HMS when a TIME field has no TIMFMT`, () => {
+    const sandbox = loadWebui();
+    const timeField = {
+      name: `TIMEFLD`, type: `T`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 }, keywords: [{ name: `TIME`, value: undefined, conditions: [] }],
+    };
+    expect(textOf(sandbox.getElement(timeField, false, `FMT`))).toBe(`hh:mm:ss`);
+  });
+
+  it(`still uses an explicit DATFMT/TIMFMT when given`, () => {
+    const sandbox = loadWebui();
+    const dateField = {
+      name: `DATEFLD`, type: `L`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 },
+      keywords: [
+        { name: `DATE`, value: undefined, conditions: [] },
+        { name: `DATFMT`, value: `*ISO`, conditions: [] },
+      ],
+    };
+    expect(textOf(sandbox.getElement(dateField, false, `FMT`))).toBe(`yyyy-mm-dd`);
+  });
+
+  it(`still applies an explicit DATSEP/TIMSEP on top of the fallback format`, () => {
+    const sandbox = loadWebui();
+    const dateField = {
+      name: `DATEFLD`, type: `L`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 },
+      keywords: [
+        { name: `DATE`, value: undefined, conditions: [] },
+        { name: `DATSEP`, value: `-`, conditions: [] },
+      ],
+    };
+    expect(textOf(sandbox.getElement(dateField, false, `FMT`))).toBe(`mm-dd-yyyy`);
+  });
+
+  it(`still uses an explicit TIMFMT when given (symmetry with DATFMT)`, () => {
+    const sandbox = loadWebui();
+    const timeField = {
+      name: `TIMEFLD`, type: `T`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 },
+      keywords: [
+        { name: `TIME`, value: undefined, conditions: [] },
+        { name: `TIMFMT`, value: `*ISO`, conditions: [] },
+      ],
+    };
+    expect(textOf(sandbox.getElement(timeField, false, `FMT`))).toBe(`hh.mm.ss`);
+  });
+
+  it(`still applies an explicit TIMSEP on top of the fallback format (symmetry with DATSEP)`, () => {
+    const sandbox = loadWebui();
+    const timeField = {
+      name: `TIMEFLD`, type: `T`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 },
+      keywords: [
+        { name: `TIME`, value: undefined, conditions: [] },
+        { name: `TIMSEP`, value: `-`, conditions: [] },
+      ],
+    };
+    expect(textOf(sandbox.getElement(timeField, false, `FMT`))).toBe(`hh-mm-ss`);
+  });
+
+  it(`doesn't touch the separator when DATSEP/TIMSEP is explicitly *JOB, even with the fallback format`, () => {
+    const sandbox = loadWebui();
+    const dateField = {
+      name: `DATEFLD`, type: `L`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 },
+      keywords: [
+        { name: `DATE`, value: undefined, conditions: [] },
+        { name: `DATSEP`, value: `*JOB`, conditions: [] },
+      ],
+    };
+    const timeField = {
+      name: `TIMEFLD`, type: `T`, length: 8, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 },
+      keywords: [
+        { name: `TIME`, value: undefined, conditions: [] },
+        { name: `TIMSEP`, value: `*JOB`, conditions: [] },
+      ],
+    };
+    expect(textOf(sandbox.getElement(dateField, false, `FMT`))).toBe(`mm/dd/yyyy`);
+    expect(textOf(sandbox.getElement(timeField, false, `FMT`))).toBe(`hh:mm:ss`);
+  });
+});

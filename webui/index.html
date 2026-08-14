@@ -16,6 +16,8 @@
     <div style="padding: 0.5em 1em; display: flex; align-items: center; gap: 0.5em; border-bottom: 1px solid var(--vscode-editorGroup-border);">
       <vscode-label for="recordFormatSelect">Record Format:</vscode-label>
       <div id="recordFormatSelector" style="flex: 1; max-width: 24em;"></div>
+      <!-- Only shown when DSPSIZ defines more than one size (e.g. *DS3 and *DS4 together). -->
+      <div id="dspSizeToggle" style="display: none;"></div>
     </div>
 
     <div style="display: flex; height: calc(100vh - 3em);">

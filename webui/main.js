@@ -132,6 +132,12 @@ let composedFormats = new Set();
 // composed formats, entirely read-only - like RDi's "Preview" page.
 let previewMode = false;
 
+// Which DSPSIZ size is currently selected for rendering, when a file defines
+// more than one (e.g. *DS3 and *DS4 together). Only meaningful/shown when
+// there's actually a choice to make.
+/** @type {string|undefined} */
+let dspSizeQualifier = undefined;
+
 /** @type {Stage|undefined} */
 let existingStage = undefined;
 
@@ -181,10 +187,17 @@ function loadDDS(newDoc, type, withRerender = true) {
 
   if (withRerender) {
     const validFormats = activeDocument.formats.filter(format => format.name !== GLOBAL_RECORD_FORMAT);
+    const validNames = validFormats.map(format => format.name);
 
-    setTabs(validFormats.map(format => format.name), lastSelectedFormat);
+    // Never leave the selector on a blank/stale format - fall back to the
+    // first one whenever there isn't already a valid selection (first load,
+    // or the previously-selected format got renamed/deleted).
+    const chosenFormat = (lastSelectedFormat && validNames.includes(lastSelectedFormat))
+      ? lastSelectedFormat
+      : validNames[0];
 
-    const chosenFormat = lastSelectedFormat || (validFormats[0] ? validFormats[0].name : undefined);
+    setTabs(validNames, chosenFormat);
+
     if (chosenFormat) {
       setWindowForFormat(chosenFormat);
     }
@@ -202,7 +215,15 @@ function setWindowForFormat(chosenFormat) {
   const selectedFormat = activeDocument.formats.find(currentFormat => currentFormat.name === chosenFormat);
 
   if (!selectedFormat) {
-    console.error(`Format ${chosenFormat} not found`);
+    // Not a real error the user needs to see (e.g. still typing into the
+    // format combobox) - just show nothing rather than leaving stale
+    // content on screen or logging a visible error.
+    if (existingStage) {
+      existingStage.destroy();
+      existingStage = undefined;
+    }
+    document.getElementById(`recordFormatSidebar`).innerHTML = ``;
+    document.getElementById(`fieldInfoSidebar`).innerHTML = ``;
     return;
   }
 
@@ -210,23 +231,17 @@ function setWindowForFormat(chosenFormat) {
     case `dds.dspf`:
       if (globalFormat) {
         const displaySize = globalFormat.keywords.find(keyword => keyword.name === `DSPSIZ`);
+        const sizes = displaySize ? parseDspSizes(displaySize.value) : [];
 
-        if (displaySize) {
-          const parts = parseParms(displaySize.value);
+        updateDspSizeToggle(sizes);
 
-          if (parts.length >= 2) {
-            const [height, width] = parts;
+        const chosenSize = sizes.length > 1
+          ? (sizes.find(s => s.qualifier === dspSizeQualifier) || sizes[0])
+          : sizes[0];
 
-            renderWidth = Number(width);
-            renderHeight = Number(height);
-          } else if (parts.length === 1) {
-            switch (parts[0].toUpperCase()) {
-              case '*DS4':
-                renderWidth = 132;
-                renderHeight = 27;
-                break;
-            }
-          }
+        if (chosenSize) {
+          renderWidth = chosenSize.width;
+          renderHeight = chosenSize.height;
         }
       }
       break;
@@ -480,6 +495,53 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
  * @param {*} layer 
  * @param {RecordInfo} format 
  */
+/**
+ * How many screen columns a field actually occupies - matches the same
+ * length rule getElement uses to render it (const's literal text, or the
+ * field's own length floored at 1 for zero-length referenced fields).
+ * @param {FieldInfo} field
+ */
+function fieldDisplayLength(field) {
+  if (field.displayType === `const`) {
+    return (field.value || ``).length;
+  }
+  return Math.max(1, field.length || 0);
+}
+
+/**
+ * Finds fields/constants on the same row whose columns overlap, or sit
+ * immediately next to each other with no blank column between them - on a
+ * real 5250 display that doesn't render/behave correctly, even though it's
+ * visually indistinguishable from a normal 1-column gap in this renderer.
+ * @param {FieldInfo[]} fields
+ * @returns {Set<FieldInfo>} every field involved in at least one conflict
+ */
+function findTouchingFields(fields) {
+  const conflicting = new Set();
+  const positioned = fields.filter(field => field.displayType !== `hidden` && field.position.x > 0 && field.position.y > 0);
+
+  for (let i = 0; i < positioned.length; i++) {
+    for (let j = i + 1; j < positioned.length; j++) {
+      const a = positioned[i];
+      const b = positioned[j];
+      if (a.position.y !== b.position.y) { continue; }
+
+      const aEnd = a.position.x + fieldDisplayLength(a) - 1;
+      const bEnd = b.position.x + fieldDisplayLength(b) - 1;
+
+      const overlaps = a.position.x <= bEnd && b.position.x <= aEnd;
+      const noGap = (b.position.x === aEnd + 1) || (a.position.x === bEnd + 1);
+
+      if (overlaps || noGap) {
+        conflicting.add(a);
+        conflicting.add(b);
+      }
+    }
+  }
+
+  return conflicting;
+}
+
 function addFieldsToLayer(layer, format, displayOnly = false) {
   const subfileFormat = format.keywords.find(keyword => keyword.name === `SFLCTL`);
   // TODO: handle when subFileFormat is found
@@ -492,6 +554,8 @@ function addFieldsToLayer(layer, format, displayOnly = false) {
 
     if (subfileRecord) {
       const subfileFields = subfileRecord.fields.filter(field => field.displayType !== `hidden` && field.position.x > 0 && field.position.y > 0);
+      // Checked once against the template row - every repeated row has the same conflicts.
+      const subfileConflicting = findTouchingFields(subfileFields);
 
       const low = Math.min(...subfileFields.map(field => field.position.y));
       const high = Math.max(...subfileFields.map(field => field.position.y));
@@ -505,7 +569,7 @@ function addFieldsToLayer(layer, format, displayOnly = false) {
 
           if (indicatorsSatisfied(field.conditions)) {
             subField.name = `${field.name}_${row}`;
-            const content = getElement(subField, true, subfileRecord.name);
+            const content = getElement(subField, true, subfileRecord.name, subfileConflicting.has(field));
             layer.add(content);
           }
         });
@@ -518,9 +582,10 @@ function addFieldsToLayer(layer, format, displayOnly = false) {
   }
 
   const fields = format.fields.filter(field => field.displayType !== `hidden`);
+  const conflicting = findTouchingFields(fields);
   fields.forEach(field => {
     if (indicatorsSatisfied(field.conditions)) {
-      const content = getElement(field, displayOnly, format.name);
+      const content = getElement(field, displayOnly, format.name, conflicting.has(field));
       layer.add(content);
     }
   });
@@ -559,8 +624,11 @@ function elementId(formatName, fieldName) {
  * @param {boolean} [displayOnly]
  * @param {string} [formatName] the record format this field belongs to, so its
  *   canvas id doesn't collide with a same-named field in another composed format
+ * @param {boolean} [hasWarning] outlines the field in red - it touches or
+ *   overlaps another field/constant on the same row, which doesn't render
+ *   correctly on a real 5250 display
  */
-function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFormat) {
+function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFormat, hasWarning = false) {
   const boxInfo = {
     id: elementId(formatName, fieldInfo.name),
     x: widthInP(fieldInfo.position.x - 1),
@@ -600,25 +668,26 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
       case `DATE`:
         const dateSep = keywords.find(keyword => keyword.name === `DATSEP`);
 
+        // DDS's own default when DATFMT is omitted is *JOB (whatever format
+        // the running job uses) - unknowable from a static file. *MDY is the
+        // closest thing to a traditional IBM i default, so fall back to it.
         const dateFormat = keywords.find(keyword => keyword.name === `DATFMT`);
-        if (dateFormat) {
-          labelInfo.value = dateFormats[dateFormat.value] || `?FORMAT?`;
+        const effectiveDateFormat = dateFormat ? dateFormat.value : `*MDY`;
+        labelInfo.value = dateFormats[effectiveDateFormat] || `?FORMAT?`;
 
-          if (dateSep && dateSep.value.toUpperCase() !== `*JOB`) {
-            labelInfo.value = labelInfo.value.replace(new RegExp(`[./-:]`, `g`), dateSep.value);
-          }
+        if (dateSep && dateSep.value.toUpperCase() !== `*JOB`) {
+          labelInfo.value = labelInfo.value.replace(new RegExp(`[./-:]`, `g`), dateSep.value);
         }
         break;
       case `TIME`:
         const sep = keywords.find(keyword => keyword.name === `TIMSEP`);
 
         const format = keywords.find(keyword => keyword.name === `TIMFMT`);
-        if (format) {
-          labelInfo.value = timeFormats[format.value] || `?FORMAT?`;
+        const effectiveTimeFormat = format ? format.value : `*HMS`;
+        labelInfo.value = timeFormats[effectiveTimeFormat] || `?FORMAT?`;
 
-          if (sep && sep.value.toUpperCase() !== `*JOB`) {
-            labelInfo.value = labelInfo.value.replace(new RegExp(`[./-:]`, `g`), sep.value);
-          }
+        if (sep && sep.value.toUpperCase() !== `*JOB`) {
+          labelInfo.value = labelInfo.value.replace(new RegExp(`[./-:]`, `g`), sep.value);
         }
         break;
       case `UNDERLINE`:
@@ -750,6 +819,8 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
     y: 0,
     width: boxInfo.width,
     height: pxhPerChar,
+    stroke: hasWarning ? colours.RED : undefined,
+    strokeWidth: hasWarning ? 1 : 0,
   }));
 
   // add text to the label
@@ -801,6 +872,84 @@ function parseParms(string) {
   }
 
   return items;
+}
+
+/**
+ * DSPSIZ can define one size (`24 80 *DS3`) or two, so the same screen can
+ * adapt to either terminal size at runtime (`24 80 *DS3 27 132 *DS4`). Parses
+ * it into a list of {height, width, qualifier} groups - one entry normally,
+ * two if both are defined. The trailing *DSx qualifier is optional on a
+ * given group (older DDS sometimes omits it).
+ * @param {string} value
+ * @returns {{height: number, width: number, qualifier: string|undefined}[]}
+ */
+function parseDspSizes(value) {
+  const parts = parseParms(value);
+  const sizes = [];
+
+  let i = 0;
+  while (i < parts.length) {
+    const height = Number(parts[i]);
+    const width = Number(parts[i + 1]);
+
+    if (Number.isNaN(height) || Number.isNaN(width)) { break; }
+
+    let qualifier;
+    if (parts[i + 2] && parts[i + 2].toUpperCase().startsWith(`*DS`)) {
+      qualifier = parts[i + 2].toUpperCase();
+      i += 3;
+    } else {
+      i += 2;
+    }
+
+    sizes.push({ height, width, qualifier });
+  }
+
+  return sizes;
+}
+
+/**
+ * Shows/hides and (re)builds the *DS3/*DS4 toggle in the top bar, based on
+ * how many sizes the current file's DSPSIZ actually defines.
+ * @param {{height: number, width: number, qualifier: string|undefined}[]} sizes
+ */
+function updateDspSizeToggle(sizes) {
+  const container = document.getElementById(`dspSizeToggle`);
+  container.innerHTML = ``;
+
+  if (sizes.length < 2) {
+    container.style.display = `none`;
+    return;
+  }
+
+  container.style.display = ``;
+
+  if (!sizes.some(s => s.qualifier === dspSizeQualifier)) {
+    dspSizeQualifier = sizes[0].qualifier;
+  }
+
+  const group = document.createElement(`vscode-radio-group`);
+
+  sizes.forEach((size, index) => {
+    const radio = document.createElement(`vscode-radio`);
+    radio.setAttribute(`name`, `dspSize`);
+    radio.setAttribute(`value`, size.qualifier || String(index));
+    radio.setAttribute(`label`, `${size.qualifier || `Size ${index + 1}`} (${size.height}x${size.width})`);
+    if (size.qualifier === dspSizeQualifier) {
+      radio.setAttribute(`checked`, `true`);
+    }
+
+    radio.addEventListener(`change`, () => {
+      dspSizeQualifier = size.qualifier;
+      if (lastSelectedFormat) {
+        setWindowForFormat(lastSelectedFormat);
+      }
+    });
+
+    group.appendChild(radio);
+  });
+
+  container.appendChild(group);
 }
 
 /**
@@ -894,19 +1043,20 @@ function updateRecordFormatSidebar(recordInfo) {
   /** @type {Section[]} */
   let sections = [];
 
-  if (previewMode) {
-    const otherFormats = activeDocument.formats
-      .filter(format => format.name !== GLOBAL_RECORD_FORMAT && format.name !== recordInfo.name)
-      .map(format => format.name);
+  // Always shown, not just in preview mode - selections here are simply
+  // ignored (see setWindowForFormat) until preview mode is on, rather than
+  // the control itself disappearing.
+  const otherFormats = activeDocument.formats
+    .filter(format => format.name !== GLOBAL_RECORD_FORMAT && format.name !== recordInfo.name)
+    .map(format => format.name);
 
-    if (otherFormats.length > 0) {
-      sections.push({
-        title: `Composed Formats`,
-        html: createComposedFormatsPanel(otherFormats),
-        // Stay open across the re-render a toggle triggers, once anything's composed.
-        open: composedFormats.size > 0
-      });
-    }
+  if (otherFormats.length > 0) {
+    sections.push({
+      title: `Composed Formats`,
+      html: createComposedFormatsPanel(otherFormats),
+      // Stay open across the re-render a toggle triggers, once anything's composed.
+      open: composedFormats.size > 0
+    });
   }
 
   const referencedIndicators = getReferencedIndicators();
@@ -1250,8 +1400,6 @@ function updateSelectedFieldSidebar(fieldInfo) {
         sendFieldUpdate(lastSelectedFormat, fieldInfo.name, fieldInfo);
       }),
     },
-    createFormatKeywordsTab(),
-    createFileKeywordsTab(),
   ]);
 
   const deleteButton = document.createElement(`vscode-button`);
