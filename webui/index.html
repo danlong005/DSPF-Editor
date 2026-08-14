@@ -13,29 +13,33 @@
     <!-- A tab strip doesn't scale to files with many record formats - can't
          see them all, and long names get clipped. A filterable dropdown scrolls
          and can be typed into instead. -->
-    <div style="padding: 0.5em 1em; display: flex; align-items: center; gap: 0.5em;">
+    <div style="padding: 0.5em 1em; display: flex; align-items: center; gap: 0.5em; border-bottom: 1px solid var(--vscode-editorGroup-border);">
       <vscode-label for="recordFormatSelect">Record Format:</vscode-label>
       <div id="recordFormatSelector" style="flex: 1; max-width: 24em;"></div>
     </div>
 
-
-    <div style="display: flex; height: 100vh;">
+    <div style="display: flex; height: calc(100vh - 3em);">
       <!-- Left Sidebar -->
-      <div style="width: 20%; background-color: var(--vscode-sideBar-background);">
+      <div style="width: 20%; background-color: var(--vscode-sideBar-background); overflow-y: auto;">
         <div id="recordFormatSidebar">
-        </div>
-        <div id="keywordEditorArea">
         </div>
       </div>
 
       <!-- Main Content -->
-      <div style="flex: 1; display: flex; justify-content: center; margin-top: 3em;">
-        <div id="container"></div>
+      <div style="flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 2em; overflow: auto;">
+        <div id="containerFrame" style="border: 1px solid var(--vscode-editorGroup-border); border-radius: 4px; padding: 1px; background: var(--vscode-editor-background); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);">
+          <div id="container"></div>
+        </div>
       </div>
 
       <!-- Right Sidebar -->
-      <div style="width: 20%; background-color: var(--vscode-sideBar-background);">
+      <div style="width: 20%; background-color: var(--vscode-sideBar-background); overflow-y: auto;">
         <div id="fieldInfoSidebar">
+        </div>
+        <!-- Both field- and format-level keyword trees now live in this same
+             right panel (as tabs), so their shared "add/edit keyword" form
+             belongs here too, not off in the left sidebar. -->
+        <div id="keywordEditorArea">
         </div>
       </div>
     </div></div>

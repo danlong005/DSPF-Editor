@@ -139,12 +139,25 @@ export class RendererWebview {
           if (formatUpdate) {
             if (formatUpdate.range) {
               const workspaceEdit = new WorkspaceEdit();
-              workspaceEdit.replace(
-                this.document.uri,
-                new Range(formatUpdate.range.start, 0, formatUpdate.range.end, 1000),
-                formatUpdate.newLines.join('\n'), // TOOD: use the correct EOL?
-                {label: `Update DDS Format`, needsConfirmation: false}
-              );
+
+              if (formatUpdate.range.end < formatUpdate.range.start) {
+                // No existing header content to replace (e.g. a file with no
+                // file-level keywords yet, so there's nothing before the
+                // first record's line to anchor a replace on) - insert instead.
+                workspaceEdit.insert(
+                  this.document.uri,
+                  new Position(formatUpdate.range.start, 0),
+                  formatUpdate.newLines.join('\n') + `\n`, // TOOD: use the correct EOL?
+                  {label: `Update DDS Format`, needsConfirmation: false}
+                );
+              } else {
+                workspaceEdit.replace(
+                  this.document.uri,
+                  new Range(formatUpdate.range.start, 0, formatUpdate.range.end, 1000),
+                  formatUpdate.newLines.join('\n'), // TOOD: use the correct EOL?
+                  {label: `Update DDS Format`, needsConfirmation: false}
+                );
+              }
 
               if (await this.applyEditAndSave(workspaceEdit)) {
                 this.load(true);

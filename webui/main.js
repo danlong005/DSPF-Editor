@@ -200,7 +200,7 @@ function setWindowForFormat(chosenFormat) {
   let renderWidth = 80;
   let renderHeight = 24;
 
-  const globalFormat = activeDocument.formats.find(currentFormat => currentFormat.name === `GLOBAL`);
+  const globalFormat = activeDocument.formats.find(currentFormat => currentFormat.name === GLOBAL_RECORD_FORMAT);
   const selectedFormat = activeDocument.formats.find(currentFormat => currentFormat.name === chosenFormat);
 
   if (!selectedFormat) {
@@ -298,7 +298,7 @@ function setWindowForFormat(chosenFormat) {
 
   existingStage.add(layer);
 
-  updateRecordFormatSidebar(selectedFormat, globalFormat);
+  updateRecordFormatSidebar(selectedFormat);
   setActiveField();
 }
 
@@ -890,7 +890,7 @@ function setActiveField(konvaElement, fieldInfo) {
  * @param {RecordInfo} recordInfo
  * @param {RecordInfo} [globalInfo]
  */
-function updateRecordFormatSidebar(recordInfo, globalInfo) {
+function updateRecordFormatSidebar(recordInfo) {
   const sidebar = document.getElementById(`recordFormatSidebar`);
 
   /** @type {Section[]} */
@@ -920,26 +920,6 @@ function updateRecordFormatSidebar(recordInfo, globalInfo) {
       open: activeIndicators.size > 0
     });
   }
-
-  if (globalInfo) {
-    // Section for keywords that apply to the entire file
-    sections.push({
-      title: `File Keywords`,
-      html: createKeywordPanel(`keywords-${globalInfo.name}`, globalInfo.keywords),
-      open: true
-    });
-  }
-
-  // Section for keywords on the record format - read-only in preview mode,
-  // same as everything else there.
-
-  sections.push({
-    title: `Format Keywords`,
-    html: createKeywordPanel(`keywords-${recordInfo.name}`, recordInfo.keywords, previewMode ? undefined : (keywords) => {
-      sendFormatHeaderUpdate(recordInfo.name, keywords);
-    }),
-    open: true
-  });
 
   renderSections(sidebar, sections);
 
@@ -1030,27 +1010,48 @@ function createComposedFormatsPanel(formatNames) {
 
 function clearFieldInfo() {
   const sidebar = document.getElementById(`fieldInfoSidebar`);
-  sidebar.innerHTML = ``;
 
-  if (previewMode) {
+  /** @type {{title: string, html: string|Element}[]} */
+  const tabs = [];
+
+  if (!previewMode) {
     // Nothing is editable in preview mode - there's no field to add these to.
-    return;
+    tabs.push({ title: `Add Field`, html: createAddFieldPanel() });
   }
 
+  tabs.push(createFormatKeywordsTab());
+  tabs.push(createFileKeywordsTab());
+
+  renderFieldTabs(sidebar, tabs);
+}
+
+function createAddFieldPanel() {
+  const panel = document.createElement(`div`);
+
+  const createGroupHeader = (title) => {
+    const header = document.createElement(`div`);
+    header.innerText = title.toUpperCase();
+    header.style.fontSize = `0.8em`;
+    header.style.fontWeight = `600`;
+    header.style.letterSpacing = `0.05em`;
+    header.style.opacity = `0.65`;
+    header.style.margin = `1.2em 1em 0.4em`;
+    return header;
+  };
+
   /**
-   * @param {string} label 
-   * @param {string} icon 
-   * @param {FieldInfo} field 
+   * @param {string} label
+   * @param {string} icon
+   * @param {FieldInfo} field
    */
   const createButton = (label, icon, field) => {
     const button = document.createElement(`vscode-button`);
     button.setAttribute(`secondary`, `true`);
     button.setAttribute(`icon`, icon);
-    button.style.margin = `1em`;
+    button.style.margin = `0.2em 1em`;
     button.style.display = `block`;
-    button.style.textAlign = `right`;
+    button.style.textAlign = `left`;
     button.innerText = label;
-    sidebar.appendChild(button);
 
     button.onclick = () => {
       if (lastSelectedFormat) {
@@ -1061,9 +1062,8 @@ function clearFieldInfo() {
     return button;
   }
 
-  // Creates: <vscode-button secondary>Secondary button</vscode-button>
-  
-  sidebar.appendChild(createButton(`Named field`, `add`, {
+  panel.appendChild(createGroupHeader(`Fields`));
+  panel.appendChild(createButton(`Named field`, `add`, {
     name: `NEWFLD1`,
     type: `A`,
     length: 10,
@@ -1073,7 +1073,7 @@ function clearFieldInfo() {
     keywords: [],
     conditions: [],
   }));
-  sidebar.appendChild(createButton(`Date field`, `calendar`, {
+  panel.appendChild(createButton(`Date field`, `calendar`, {
     name: `DATEFLD`,
     type: `L`,
     length: 8,
@@ -1083,7 +1083,7 @@ function clearFieldInfo() {
     keywords: [{name: `DATFMT`, value: `*ISO`, conditions: []}],
     conditions: [],
   }));
-  sidebar.appendChild(createButton(`Time field`, `calendar`, {
+  panel.appendChild(createButton(`Time field`, `calendar`, {
     name: `TIMEFLD`,
     type: `T`,
     length: 8,
@@ -1097,14 +1097,15 @@ function clearFieldInfo() {
   // types L (date) and T (time), not Z (timestamp), so there's no
   // primitiveType/keyword support to generate a working field from here.
 
-  sidebar.appendChild(createButton(`Constant text`, `symbol-constant`, {
+  panel.appendChild(createGroupHeader(`Specials`));
+  panel.appendChild(createButton(`Constant text`, `symbol-constant`, {
     value: `Constant`,
     position: {x: 1, y: 1},
     displayType: `const`,
     keywords: [],
     conditions: [],
   }));
-  sidebar.appendChild(createButton(`System name constant`, `account`, {
+  panel.appendChild(createButton(`System name constant`, `account`, {
     name: `SYSFLD`,
     type: `A`,
     length: 8,
@@ -1114,7 +1115,7 @@ function clearFieldInfo() {
     keywords: [{name: `SYSNAME`, value: undefined, conditions: []}],
     conditions: [],
   }));
-  sidebar.appendChild(createButton(`Date constant`, `calendar`, {
+  panel.appendChild(createButton(`Date constant`, `calendar`, {
     name: `DATECST`,
     type: `L`,
     length: 8,
@@ -1124,7 +1125,7 @@ function clearFieldInfo() {
     keywords: [{name: `DATFMT`, value: `*ISO`, conditions: []}],
     conditions: [],
   }));
-  sidebar.appendChild(createButton(`Time constant`, `calendar`, {
+  panel.appendChild(createButton(`Time constant`, `calendar`, {
     name: `TIMECST`,
     type: `T`,
     length: 8,
@@ -1134,17 +1135,59 @@ function clearFieldInfo() {
     keywords: [{name: `TIMFMT`, value: `*ISO`, conditions: []}],
     conditions: [],
   }));
+
+  return panel;
 }
 
 /**
- * 
- * @param {FieldInfo} fieldInfo 
+ * A tab showing the current record format's own keywords - present in the
+ * right panel regardless of whether a field is selected, so it sits
+ * alongside whatever's currently shown (the add-field toolbox, or a
+ * selected field's own properties/keywords) rather than living separately
+ * in the left sidebar.
+ * @returns {{title: string, html: Element}}
+ */
+function createFormatKeywordsTab() {
+  const currentFormat = activeDocument && lastSelectedFormat
+    ? activeDocument.formats.find(format => format.name === lastSelectedFormat)
+    : undefined;
+
+  const html = currentFormat
+    ? createKeywordPanel(`keywords-${currentFormat.name}`, currentFormat.keywords, previewMode ? undefined : (keywords) => {
+      sendFormatHeaderUpdate(currentFormat.name, keywords);
+    })
+    : document.createElement(`div`);
+
+  return { title: `Format Keywords`, html };
+}
+
+/**
+ * A tab for the file-level (a.k.a. "screen level") keywords - the ones
+ * written above every record format in the source, like DSPSIZ. Same
+ * treatment as createFormatKeywordsTab, just scoped to the whole file
+ * instead of the current record.
+ * @returns {{title: string, html: Element}}
+ */
+function createFileKeywordsTab() {
+  const globalFormat = activeDocument
+    ? activeDocument.formats.find(format => format.name === GLOBAL_RECORD_FORMAT)
+    : undefined;
+
+  const html = globalFormat
+    ? createKeywordPanel(`keywords-${globalFormat.name}`, globalFormat.keywords, previewMode ? undefined : (keywords) => {
+      sendFormatHeaderUpdate(globalFormat.name, keywords);
+    })
+    : document.createElement(`div`);
+
+  return { title: `File Keywords`, html };
+}
+
+/**
+ *
+ * @param {FieldInfo} fieldInfo
  */
 function updateSelectedFieldSidebar(fieldInfo) {
   const sidebar = document.getElementById(`fieldInfoSidebar`);
-
-  /** @type {Section[]} */
-  let sections = [];
 
   /** @type {Property[]} */
   const properties = [];
@@ -1188,11 +1231,9 @@ function updateSelectedFieldSidebar(fieldInfo) {
     }
   }
 
-  sections.push(
+  renderFieldTabs(sidebar, [
     {
-      title: `Properties`,
-      open: true,
-      // TODO: swap this to createKeywordPanel
+      title: `Basic`,
       html: createValuesPanel(`properties-${fieldInfo.name}`, properties, (newProps) => {
         const originalFieldName = fieldInfo.name;
 
@@ -1206,15 +1247,14 @@ function updateSelectedFieldSidebar(fieldInfo) {
     },
     {
       title: `Keywords`,
-      open: Object.keys(fieldInfo.keywords).length > 0,
       html: createKeywordPanel(`keywords-${fieldInfo.name}`, fieldInfo.keywords, (keywords) => {
         fieldInfo.keywords = keywords;
         sendFieldUpdate(lastSelectedFormat, fieldInfo.name, fieldInfo);
       }),
-    }
-  );
-
-  renderSections(sidebar, sections);
+    },
+    createFormatKeywordsTab(),
+    createFileKeywordsTab(),
+  ]);
 
   const deleteButton = document.createElement(`vscode-button`);
   deleteButton.setAttribute(`secondary`, `true`);
@@ -1256,6 +1296,38 @@ function renderSections(sidebar, sections) {
 
     sidebar.appendChild(newSection);
   }
+}
+
+/**
+ * A small, fixed set of tabs (Basic/Keywords for a selected field) - unlike
+ * the record-format list, this never grows unboundedly, so a tab strip is a
+ * fine fit here.
+ * @param {HTMLElement} container
+ * @param {{title: string, html: string|Element}[]} tabs
+ */
+function renderFieldTabs(container, tabs) {
+  container.innerHTML = ``;
+
+  const tabsElement = document.createElement(`vscode-tabs`);
+  tabsElement.setAttribute(`selected-index`, `0`);
+
+  for (const tab of tabs) {
+    const header = document.createElement(`vscode-tab-header`);
+    header.setAttribute(`slot`, `header`);
+    header.innerText = tab.title;
+    tabsElement.appendChild(header);
+
+    const panel = document.createElement(`vscode-tab-panel`);
+    panel.style.padding = `1em 0`;
+    if (typeof tab.html === `string`) {
+      panel.innerHTML = tab.html;
+    } else {
+      panel.appendChild(tab.html);
+    }
+    tabsElement.appendChild(panel);
+  }
+
+  container.appendChild(tabsElement);
 }
 
 /**
@@ -1451,14 +1523,14 @@ function createValuesPanel(id, properties, onUpdate) {
   const createRow = (label) => {
     const row = document.createElement(`div`);
     row.style.display = `flex`;
-    row.style.alignItems = `center`;
-    row.style.gap = `0.75em`;
-    row.style.marginBottom = `0.5em`;
+    row.style.flexDirection = `column`;
+    row.style.gap = `0.3em`;
+    row.style.marginBottom = `1em`;
 
     const labelElement = document.createElement(`vscode-label`);
     labelElement.innerText = label;
-    labelElement.style.minWidth = `6em`;
-    labelElement.style.flexShrink = `0`;
+    labelElement.style.opacity = `0.8`;
+    labelElement.style.fontSize = `0.9em`;
     row.appendChild(labelElement);
 
     return row;
@@ -1498,9 +1570,10 @@ function createValuesPanel(id, properties, onUpdate) {
     input.dataset.fieldId = fieldId;
     input.innerText = value;
     input.setAttribute(`contenteditable`, `true`);
-    input.style.display = `inline-block`;
-    input.style.flex = `1`;
-    input.style.padding = `0.2em 0.5em`;
+    input.style.display = `block`;
+    input.style.width = `100%`;
+    input.style.boxSizing = `border-box`;
+    input.style.padding = `0.4em 0.5em`;
     input.style.border = `1px solid var(--vscode-settings-textInputBorder, transparent)`;
     input.style.borderRadius = `2px`;
     input.style.background = `var(--vscode-settings-textInputBackground)`;
@@ -1513,7 +1586,7 @@ function createValuesPanel(id, properties, onUpdate) {
   const createSelectElement = (fieldId, value, options) => {
     const select = document.createElement(`vscode-single-select`);
     select.dataset.fieldId = fieldId;
-    select.style.flex = `1`;
+    select.style.width = `100%`;
     // Assigning slotted <vscode-option> children only registers reliably once
     // the element is connected and a slotchange fires - fragile when building
     // the whole tree detached, as we do here. Setting .options directly writes
