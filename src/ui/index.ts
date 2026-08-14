@@ -1,24 +1,23 @@
 import { readFileSync } from "fs";
-import { Uri, Webview, window, WebviewPanel, ViewColumn, ExtensionContext, workspace, TextDocument, Range, WorkspaceEdit, Position } from "vscode";
-import { DisplayFile, FieldInfo, Keyword, RecordInfo } from "./dspf";
+import { Uri, Webview, WebviewPanel, ExtensionContext, workspace, TextDocument, Range, WorkspaceEdit, Position, Disposable } from "vscode";
+import { DisplayFile, FieldInfo, Keyword } from "./dspf";
 
+export const DSPF_VIEW_TYPE = `vscode-ibmi-renderer.dspfEditor`;
 
 export class RendererWebview {
-  private view: WebviewPanel;
-  private document: TextDocument|undefined;
-  private dds: DisplayFile|undefined;
+  private dds: DisplayFile | undefined;
+  private readonly disposables: Disposable[] = [];
 
   private get extensionPath() {
     return this.context.extensionUri;
   }
 
-  constructor(private readonly context: ExtensionContext, private readonly workingUri: Uri) {
-    const panel = window.createWebviewPanel(`ibmi_renderer`, `Renderer`, {
-      preserveFocus: true,
-      viewColumn: ViewColumn.Active
-    });
-
-    panel.webview.options = {
+  constructor(
+    private readonly context: ExtensionContext,
+    private readonly document: TextDocument,
+    private readonly view: WebviewPanel
+  ) {
+    view.webview.options = {
       enableScripts: true,
       enableCommandUris: true,
       localResourceRoots: [
@@ -28,22 +27,24 @@ export class RendererWebview {
       ],
     };
 
-    panel.onDidChangeViewState((e) => {
-      if (e.webviewPanel.visible) {
-        this.load();
-      }
-    });
-    panel.webview.onDidReceiveMessage(this.onDidGetMessage.bind(this));
+    // Keep the render in sync with the source, including edits made directly
+    // in the text editor beside it, not just ones made through this webview.
+    this.disposables.push(
+      workspace.onDidChangeTextDocument(e => {
+        if (e.document.uri.toString() === this.document.uri.toString()) {
+          this.load(false);
+        }
+      })
+    );
+    view.onDidDispose(() => this.disposables.forEach(d => d.dispose()));
 
-    panel.webview.html = this.getBaseHtml(panel.webview);
-
-    this.view = panel;
+    view.webview.onDidReceiveMessage(this.onDidGetMessage.bind(this));
+    view.webview.html = this.getBaseHtml(view.webview);
   }
 
   async load(rerender = true) {
-    this.document = await workspace.openTextDocument(this.workingUri);
     const content = this.document.getText();
-  
+
     this.dds = new DisplayFile();
     this.dds.parse(content.split(/\r?\n/));
 
@@ -51,12 +52,6 @@ export class RendererWebview {
       command: rerender ? "load" : "update",
       dds: this.dds,
     });
-  }
-
-  show() {
-    if (this.view) {
-      this.view.reveal();
-    }
   }
 
   private async onDidGetMessage(message: any) {
@@ -71,7 +66,7 @@ export class RendererWebview {
         if (typeof recordFormat === `string` && typeof fieldName === `string`) {
           const deleteFieldRange = this.dds?.getRangeForField(recordFormat, fieldName);
 
-          if (deleteFieldRange && this.document) {
+          if (deleteFieldRange) {
             const workspaceEdit = new WorkspaceEdit();
             workspaceEdit.delete(this.document.uri, new Range(deleteFieldRange.start, 0, deleteFieldRange.end, 1000));
 
@@ -81,7 +76,7 @@ export class RendererWebview {
           }
         }
         break;
-        
+
       case 'newField':
         recordFormat = message.recordFormat;
         fieldInfo = message.fieldInfo;
@@ -90,13 +85,13 @@ export class RendererWebview {
           const newField = this.dds?.updateField(recordFormat, undefined, fieldInfo);
 
           if (newField) {
-            if (newField.range && this.document) {
+            if (newField.range) {
               const workspaceEdit = new WorkspaceEdit();
               workspaceEdit.insert(
-                this.document.uri, 
+                this.document.uri,
                 new Position(newField.range.start, 0),
                 newField.newLines.join('\n') + `\n`, // TOOD: use the correct EOL?
-                {label: `Add DDS Field`, needsConfirmation: false} 
+                {label: `Add DDS Field`, needsConfirmation: false}
               );
 
               if (await this.applyEditAndSave(workspaceEdit)) {
@@ -116,13 +111,13 @@ export class RendererWebview {
           const fieldUpdate = this.dds?.updateField(recordFormat, originalFieldName, fieldInfo);
 
           if (fieldUpdate) {
-            if (fieldUpdate.range && this.document) {
+            if (fieldUpdate.range) {
               const workspaceEdit = new WorkspaceEdit();
               workspaceEdit.replace(
-                this.document.uri, 
-                new Range(fieldUpdate.range.start, 0, fieldUpdate.range.end, 1000), 
+                this.document.uri,
+                new Range(fieldUpdate.range.start, 0, fieldUpdate.range.end, 1000),
                 fieldUpdate.newLines.join('\n'), // TOOD: use the correct EOL?
-                {label: `Update DDS Field`, needsConfirmation: false} 
+                {label: `Update DDS Field`, needsConfirmation: false}
               );
 
               if (await this.applyEditAndSave(workspaceEdit)) {
@@ -142,13 +137,13 @@ export class RendererWebview {
           const formatUpdate = this.dds?.updateFormatHeader(recordFormat, newKeywords);
 
           if (formatUpdate) {
-            if (formatUpdate.range && this.document) {
+            if (formatUpdate.range) {
               const workspaceEdit = new WorkspaceEdit();
               workspaceEdit.replace(
-                this.document.uri, 
-                new Range(formatUpdate.range.start, 0, formatUpdate.range.end, 1000), 
+                this.document.uri,
+                new Range(formatUpdate.range.start, 0, formatUpdate.range.end, 1000),
                 formatUpdate.newLines.join('\n'), // TOOD: use the correct EOL?
-                {label: `Update DDS Format`, needsConfirmation: false} 
+                {label: `Update DDS Format`, needsConfirmation: false}
               );
 
               if (await this.applyEditAndSave(workspaceEdit)) {
@@ -164,7 +159,7 @@ export class RendererWebview {
   private async applyEditAndSave(workspaceEdit: WorkspaceEdit): Promise<boolean> {
     const applied = await workspace.applyEdit(workspaceEdit);
 
-    if (applied && this.document) {
+    if (applied) {
       await this.document.save();
     }
 
@@ -201,7 +196,7 @@ export class RendererWebview {
 
   static getCommandHref(command: string, ...args: unknown[]) {
     return `command:${command}?${encodeURIComponent(JSON.stringify(args))}`;
-  }  
+  }
 }
 
 function toUri(

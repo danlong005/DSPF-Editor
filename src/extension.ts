@@ -1,7 +1,7 @@
 // The module 'vscode' contains the VS Code extensibility API
 // Import the module and reference it with the alias vscode in your code below
 import * as vscode from 'vscode';
-import { RendererWebview } from './ui';
+import { RendererWebview, DSPF_VIEW_TYPE } from './ui';
 
 // This method is called when your extension is activated
 // Your extension is activated the very first time the command is executed
@@ -12,12 +12,31 @@ export function activate(context: vscode.ExtensionContext) {
 	console.log('Congratulations, your extension "vscode-ibmi-renderer" is now active!');
 
 	context.subscriptions.push(
+		vscode.window.registerCustomEditorProvider(
+			DSPF_VIEW_TYPE,
+			{
+				async resolveCustomTextEditor(document, webviewPanel) {
+					const renderer = new RendererWebview(context, document, webviewPanel);
+					await renderer.load();
+
+					// This editor is the default for .dspf files, so opening one
+					// wouldn't otherwise show the raw DDS source anywhere - open it
+					// as a second tab in the same group, not a split column.
+					await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default', {
+						viewColumn: vscode.ViewColumn.Active,
+						preserveFocus: true,
+					});
+				}
+			},
+			{ webviewOptions: { retainContextWhenHidden: true } }
+		)
+	);
+
+	context.subscriptions.push(
 		vscode.commands.registerCommand('vscode-ibmi-renderer.launchRenderer', (uri?: vscode.Uri) => {
-			if (uri) {
-				const panel = new RendererWebview(context, uri);
-				panel.load().then(() => {
-					panel.show();
-				});
+			const target = uri || vscode.window.activeTextEditor?.document.uri;
+			if (target) {
+				vscode.commands.executeCommand('vscode.openWith', target, DSPF_VIEW_TYPE, vscode.ViewColumn.Beside);
 			}
 		})
 	);
