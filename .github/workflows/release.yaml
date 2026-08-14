@@ -26,12 +26,14 @@ jobs:
 
       - run: npm test
 
-      - name: Package extension
-        run: npx @vscode/vsce package
-
       - name: Read version from package.json
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
+
+      - name: Package extension
+        # No spaces in the filename - the release step below expands *.vsix
+        # unquoted, and a space would get word-split into two arguments.
+        run: npx @vscode/vsce package --out "DSPF-Editor-${{ steps.version.outputs.version }}.vsix"
 
       - name: Create GitHub release
         env:
