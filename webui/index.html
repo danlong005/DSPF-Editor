@@ -10,10 +10,13 @@
 
 <body style="padding: 0em;">
   <div>
-    <!-- The reason the tabs are seperate is because -->
-    <!-- we don't want multiple canvases -->
-    <vscode-tabs id="recordFormatTabs" selected-index="0" fixed-pane="start">
-    </vscode-tabs>
+    <!-- A tab strip doesn't scale to files with many record formats - can't
+         see them all, and long names get clipped. A filterable dropdown scrolls
+         and can be typed into instead. -->
+    <div style="padding: 0.5em 1em; display: flex; align-items: center; gap: 0.5em;">
+      <vscode-label for="recordFormatSelect">Record Format:</vscode-label>
+      <div id="recordFormatSelector" style="flex: 1; max-width: 24em;"></div>
+    </div>
 
 
     <div style="display: flex; height: 100vh;">

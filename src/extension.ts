@@ -18,14 +18,6 @@ export function activate(context: vscode.ExtensionContext) {
 				async resolveCustomTextEditor(document, webviewPanel) {
 					const renderer = new RendererWebview(context, document, webviewPanel);
 					await renderer.load();
-
-					// This editor is the default for .dspf files, so opening one
-					// wouldn't otherwise show the raw DDS source anywhere - open it
-					// as a second tab in the same group, not a split column.
-					await vscode.commands.executeCommand('vscode.openWith', document.uri, 'default', {
-						viewColumn: vscode.ViewColumn.Active,
-						preserveFocus: true,
-					});
 				}
 			},
 			{ webviewOptions: { retainContextWhenHidden: true } }

@@ -1,7 +1,7 @@
      A                                      DSPSIZ(24 80 *DS3)
      A          R HEADER
-     A                                  1 25'Customer Maintenance'
-     A                                      DSPATR(HI)
+     A                                  1 35'Ugly Duckling'
+     A                                      COLOR(YLW)
      A            SYSFLD         8A  O  1  2
      A                                      SYSNAME
      A            DATEFLD        8L 0O  1 68
@@ -14,13 +14,14 @@
      A                                      PAGNBR
      A            USERFLD       10A  O  3  2
      A                                      USER
-     A            F1NWFLD       11D 0I  5  6
-     A            REFFLD1        0R 0   9 40
+     A            F1NWFLD       11D 0I  5  2
+     A            REFFLD1        0R 0O  9 40
      A                                      REFFLD(CUSTNO)
+     A                                      DSPATR(UL)
      A          R CUSTOMER
      A            RECKEY         4A  H  1  1
      A                                  4  2'Customer #:'
-     A            CUSTNO         6D 0I  4 15
+     A            CUSTNO         8D 2B  4 15
      A                                      COLOR(BLU)
      A                                      DSPATR(UL)
      A                                  5  2'Name:'
@@ -28,20 +29,21 @@
      A                                      COLOR(BLU)
      A                                  7  2'Balance:'
      A            BALANCE        9D 2O  7 15
-     A                                      COLOR(RED)
-     A                                      DSPATR(HI)
-     A                                  8  2'Status:'
+     A                                      COLOR(BLU)
+     A                                  8  2'Sts:'
      A            STATUS         1A  B  8 15
      A                                      COLOR(YLW)
      A  80                             10  2'Promo Code:'
      A  80        PROMO         10A  I 10 15
      A                                      COLOR(GRN)
      A                                 23  2'F3=Exit  F12=Cancel'
-     A                                      DSPATR(UL)
+     A            NEWFLD1       10A  I  9 15
+     A                                      COLOR(WHT)
+     A                                  9  2'JUNK'
      A          R SFLREC
      A            ITEM          15A  O  3  2
      A            QTY            3D 0I  3 20
-     A            PRICE          7D 2O  3 26
+     A            PRICE          7D 2O  3 34
      A          R SFLCTLFMT
      A                                      SFLCTL(SFLREC)
      A                                      SFLSIZ(0010)
@@ -53,7 +55,7 @@
      A                                      DSPATR(UL)
      A                                  2 20'Qty'
      A                                      DSPATR(UL)
-     A                                  2 26'Price'
+     A                                  2 34'Price'
      A                                      DSPATR(UL)
      A          R CONFIRMWIN
      A                                      WINDOW(3 20 8 40)
@@ -66,5 +68,45 @@
      A                                  8 24'(Y/N)'
      A          R FOOTER
      A                                      CF03(03)
-     A                                 24 40'F3=Exit'
+     A                                 23  3'F3=Exit'
      A                                      COLOR(BLU)
+     A          R FMT01
+     A                                  1  2'This is format FMT01'
+     A          R SCREENFM01
+     A                                  1  2'This is format SCREENFM01'
+     A          R FMT02
+     A                                  1  2'This is format FMT02'
+     A          R SCREENFM02
+     A                                  1  2'This is format SCREENFM02'
+     A          R FMT03
+     A                                  1  2'This is format FMT03'
+     A          R SCREENFM03
+     A                                  1  2'This is format SCREENFM03'
+     A          R FMT04
+     A                                  1  2'This is format FMT04'
+     A          R SCREENFM04
+     A                                  1  2'This is format SCREENFM04'
+     A          R FMT05
+     A                                  1  2'This is format FMT05'
+     A          R SCREENFM05
+     A                                  1  2'This is format SCREENFM05'
+     A          R FMT06
+     A                                  1  2'This is format FMT06'
+     A          R SCREENFM06
+     A                                  1  2'This is format SCREENFM06'
+     A          R FMT07
+     A                                  1  2'This is format FMT07'
+     A          R SCREENFM07
+     A                                  1  2'This is format SCREENFM07'
+     A          R FMT08
+     A                                  1  2'This is format FMT08'
+     A          R SCREENFM08
+     A                                  1  2'This is format SCREENFM08'
+     A          R FMT09
+     A                                  1  2'This is format FMT09'
+     A          R SCREENFM09
+     A                                  1  2'This is format SCREENFM09'
+     A          R FMT10
+     A                                  1  2'This is format FMT10'
+     A          R SCREENFM10
+     A                                  1  2'This is format SCREENFM10'

@@ -657,21 +657,26 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
 
   let padString = `_`;
 
-  switch (fieldInfo.primitiveType) {
-    case `char`:
-      switch (fieldInfo.displayType) {
-        case `input`: padString = `I`; break;
-        case `output`: padString = `O`; break;
-        case `both`: padString = `B`; break;
-      }
-      break;
-    case `decimal`:
-      switch (fieldInfo.displayType) {
-        case `input`: padString = `3`; break;
-        case `output`: padString = `6`; break;
-        case `both`: padString = `9`; break;
-      }
-      break;
+  // fieldInfo.primitiveType is only ever set by the server-side parser (see
+  // DisplayFile.parse in dspf.ts) - it never gets recomputed here after a
+  // client-side edit to Type, so an optimistic re-render right after changing
+  // Type would still be keying off the old value. Deriving straight from the
+  // DDS type character (the same D/Z/Y rule the parser uses) keeps this
+  // correct immediately, without needing primitiveType kept in sync at all.
+  const isDecimalType = fieldInfo.type === `D` || fieldInfo.type === `Z` || fieldInfo.type === `Y`;
+
+  if (isDecimalType) {
+    switch (fieldInfo.displayType) {
+      case `input`: padString = `3`; break;
+      case `output`: padString = `6`; break;
+      case `both`: padString = `9`; break;
+    }
+  } else {
+    switch (fieldInfo.displayType) {
+      case `input`: padString = `I`; break;
+      case `output`: padString = `O`; break;
+      case `both`: padString = `B`; break;
+    }
   }
 
   // A field referencing another field for its definition (REF/REFFLD) has no
@@ -801,24 +806,36 @@ function parseParms(string) {
 }
 
 /**
- * @param {string[]} recordFormats 
+ * @param {string[]} recordFormats
  */
 function setTabs(recordFormats, setActiveTab) {
-  // Defined like: <vscode-tabs id="recordFormatTabs" selected-index="0" fixed-pane="start">
-  const tabs = document.getElementById(`recordFormatTabs`);
+  const container = document.getElementById(`recordFormatSelector`);
 
   // Formats that no longer exist (e.g. renamed/deleted) shouldn't stay composed.
   composedFormats.forEach(name => {
     if (!recordFormats.includes(name)) { composedFormats.delete(name); }
   });
 
-  tabs.innerHTML = recordFormats.map(f =>
-    `<vscode-tab-header name="${f}" slot="header">${f}</vscode-tab-header>`
-  ).join(``);
+  container.innerHTML = ``;
 
+  const select = document.createElement(`vscode-single-select`);
+  select.id = `recordFormatSelect`;
+  select.combobox = true;
+  select.filter = `contains`;
+  select.style.width = `100%`;
+
+  select.options = recordFormats.map(name => ({ label: name, value: name }));
   if (setActiveTab) {
-    tabs.setAttribute(`selected-index`, recordFormats.indexOf(setActiveTab));
+    select.value = setActiveTab;
   }
+
+  select.addEventListener(`change`, () => {
+    if (select.value) {
+      setWindowForFormat(select.value);
+    }
+  });
+
+  container.appendChild(select);
 }
 
 
@@ -834,20 +851,6 @@ window.addEventListener("message", (event) => {
   }
 });
 
-
-window.onload = () => {
-  const tabs = document.getElementById(`recordFormatTabs`);
-
-  tabs.addEventListener(`vsc-tabs-select`, (event) => {
-    console.log(event.detail.selectedIndex);
-
-    const selectedFormat = activeDocument && activeDocument.formats[event.detail.selectedIndex+1];
-
-    if (selectedFormat) {
-      setWindowForFormat(selectedFormat.name);
-    }
-  });
-};
 
 /** @type {Rect|undefined} */
 let lastActiveKonvaElement;
@@ -1554,9 +1557,39 @@ function clearKeywordEditor() {
   keywordEditorArea.innerHTML = ``;
 }
 
+// Common DDS keywords for display files (DSPF) and printer files (PRTF), at
+// file/record/field level. Not necessarily exhaustive - CAxx/CFxx go up to 24,
+// and there are obscure/version-specific keywords not listed here. The keyword
+// select below is a filterable combobox that also accepts free text, so a
+// keyword missing from this list can still just be typed directly.
+const DDS_KEYWORDS = [
+  `AFPRSC`, `ALARM`, `ALIGN`, `ASSUME`, `AUTO`,
+  `BARCODE`, `BLANKS`, `BLINK`,
+  `CA01`, `CA03`, `CA12`, `CA24`, `CDEFNT`, `CF01`, `CF03`, `CF12`, `CF24`,
+  `CHANGE`, `CHECK`, `CHGINPDFT`, `CHRSIZ`, `CLRL`, `COLOR`, `CONCAT`, `CPI`, `CSRLOC`,
+  `DATA`, `DATE`, `DATFMT`, `DATSEP`, `DFRWRT`, `DFT`, `DSPATR`, `DSPSIZ`, `DUPLEX`,
+  `EDTCDE`, `EDTWRD`, `END`, `ENDPAGE`, `ERRMSG`, `ERRMSGID`, `ERRSFL`,
+  `FONT`, `FORCE`, `FORMFEED`,
+  `HELP`, `HLPARA`, `HLPID`, `HLPPGM`, `HLPRTN`,
+  `IGCALTTYP`, `INDARA`, `INDTXT`,
+  `KEEP`, `LPI`,
+  `MNUBAR`, `MSGID`, `MSGLOC`,
+  `OUTBIN`, `OUTPUT`, `OVERFLOW`, `OVERLAY`,
+  `PAGEDOWN`, `PAGEUP`, `PAGNBR`, `PAGRTT`, `PRINT`, `PRTQLTY`, `PULLDOWN`, `PUTOVR`, `PUTRETAIN`,
+  `RANGE`, `REF`, `REFFLD`, `RMVWDW`, `ROLLDOWN`, `ROLLUP`, `RTNCSRLOC`,
+  `SFL`, `SFLCLR`, `SFLCSRRRN`, `SFLCTL`, `SFLDROP`, `SFLDSP`, `SFLDSPCTL`, `SFLEND`,
+  `SFLENTER`, `SFLFOLD`, `SFLINZ`, `SFLLIN`, `SFLMODE`, `SFLMSG`, `SFLMSGID`, `SFLMSGRCD`,
+  `SFLNXTCHG`, `SFLPAG`, `SFLPGMQ`, `SFLRCDNBR`, `SFLRNA`, `SFLROLVAL`, `SFLSCROLL`, `SFLSIZ`,
+  `SKIPA`, `SKIPB`, `SPACEA`, `SPACEB`, `SYSNAME`,
+  `TEXT`, `TIME`, `TIMFMT`, `TIMSEP`, `TRNSPARENCY`,
+  `UDATE`, `UDAY`, `UMONTH`, `UNDERLINE`, `USER`, `USRDFN`, `USRRSTDSP`, `UYEAR`,
+  `VALUES`, `VLDCMDKEY`,
+  `WDWBORDER`, `WDWTITLE`, `WINDOW`, `WRDWRAP`,
+].sort();
+
 /**
  * @param {(keyword: Keyword) => void} onUpdate
- * @param {Keyword} [keyword] 
+ * @param {Keyword} [keyword]
  */
 function editKeyword(onUpdate, keyword) {
   const group = document.createElement(`vscode-form-group`);
@@ -1578,6 +1611,26 @@ function editKeyword(onUpdate, keyword) {
     input.setAttribute(`id`, id);
     input.setAttribute(`value`, value);
     return input;
+  };
+
+  const createKeywordNameSelect = (id, value) => {
+    const select = document.createElement(`vscode-single-select`);
+    select.setAttribute(`id`, id);
+    select.combobox = true;
+    select.creatable = true;
+    select.filter = `startsWith`;
+
+    // Setting .value only selects something already present in .options - it
+    // doesn't add it. If we're editing a keyword this list doesn't happen to
+    // cover, make sure its name is still there so it shows up instead of
+    // silently going blank.
+    const names = value && !DDS_KEYWORDS.includes(value) ? [value, ...DDS_KEYWORDS] : DDS_KEYWORDS;
+    select.options = names.map(name => ({ label: name, value: name }));
+    if (value) {
+      select.value = value;
+    }
+
+    return select;
   };
 
   const createIndicatorSelect = (id, defaultValue) => {
@@ -1611,7 +1664,7 @@ function editKeyword(onUpdate, keyword) {
   };
 
   group.appendChild(createLabel(`Keyword`, `keyword`));
-  group.appendChild(createInputField(`keyword`, keyword ? keyword.name : ``));
+  group.appendChild(createKeywordNameSelect(`keyword`, keyword ? keyword.name : ``));
 
   group.appendChild(createLabel(`Value`, `value`));
   group.appendChild(createInputField(`value`, keyword ? (keyword.value || ``) : ``));
