@@ -75,8 +75,9 @@ export class RendererWebview {
             const workspaceEdit = new WorkspaceEdit();
             workspaceEdit.delete(this.document.uri, new Range(deleteFieldRange.start, 0, deleteFieldRange.end, 1000));
 
-            await workspace.applyEdit(workspaceEdit);
-            this.load(true);
+            if (await this.applyEditAndSave(workspaceEdit)) {
+              this.load(true);
+            }
           }
         }
         break;
@@ -98,7 +99,7 @@ export class RendererWebview {
                 {label: `Add DDS Field`, needsConfirmation: false} 
               );
 
-              if (await workspace.applyEdit(workspaceEdit)) {
+              if (await this.applyEditAndSave(workspaceEdit)) {
                 this.load(true);
               }
             }
@@ -124,8 +125,9 @@ export class RendererWebview {
                 {label: `Update DDS Field`, needsConfirmation: false} 
               );
 
-              await workspace.applyEdit(workspaceEdit);
-              this.load(false); //Field is updated on the client
+              if (await this.applyEditAndSave(workspaceEdit)) {
+                this.load(false); //Field is updated on the client
+              }
             }
           }
         }
@@ -149,8 +151,9 @@ export class RendererWebview {
                 {label: `Update DDS Format`, needsConfirmation: false} 
               );
 
-              await workspace.applyEdit(workspaceEdit);
-              this.load(true);
+              if (await this.applyEditAndSave(workspaceEdit)) {
+                this.load(true);
+              }
             }
           }
         }
@@ -158,23 +161,39 @@ export class RendererWebview {
     }
   }
 
+  private async applyEditAndSave(workspaceEdit: WorkspaceEdit): Promise<boolean> {
+    const applied = await workspace.applyEdit(workspaceEdit);
+
+    if (applied && this.document) {
+      await this.document.save();
+    }
+
+    return applied;
+  }
+
   private getBaseHtml(webview: Webview) {
     const basePath = toUri(webview, this.extensionPath, `webui`, `index.html`);
     // async might be better
     let content = readFileSync(basePath.fsPath, "utf-8");
 
+    // VS Code's webview resource loader can cache local resources by URL, so an
+    // unchanged URI can keep serving a stale main.js across panel/window reloads
+    // during development. Busting the query string forces a fresh fetch each time.
+    const cacheBust = `v=${Date.now()}`;
+    const withCacheBust = (uri: Uri) => uri.with({ query: cacheBust }).toString();
+
     const fileVariables = {
-      '{main}': toUri(webview, this.extensionPath, `webui`, `main.js`),
-      '{elements}': toUri(webview, this.extensionPath, `webui`, `scripts`, `vscode-elements.js`),
-      '{styles}': toUri(webview, this.extensionPath, `webui`, `styles.css`),
-      '{codicon}': toUri(webview, this.extensionPath, `webui`, `scripts`, `codicon.css`),
-      '{konva}': toUri(webview, this.extensionPath, `webui`, `scripts`, `konva.min.js`),
+      '{main}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `main.js`)),
+      '{elements}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `scripts`, `vscode-elements.js`)),
+      '{styles}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `styles.css`)),
+      '{codicon}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `scripts`, `codicon.css`)),
+      '{konva}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `scripts`, `konva.min.js`)),
     };
 
     // Replace all variables in the content
     for (const [key, value] of Object.entries(fileVariables)) {
       const regex = new RegExp(key, 'g');
-      content = content.replace(regex, value.toString());
+      content = content.replace(regex, value);
     }
 
     return content;

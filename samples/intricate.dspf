@@ -1,0 +1,67 @@
+     A                                      DSPSIZ(24 80 *DS3)
+     A          R HEADER
+     A                                  1 25'Customer Maintenance'
+     A                                      DSPATR(HI)
+     A            SYSFLD         8A  O  1  2
+     A                                      SYSNAME
+     A            DATEFLD        8L 0O  1 68
+     A                                      DATFMT(*ISO)
+     A                                      DATSEP(-)
+     A            TIMEFLD        8T 0O  2 68
+     A                                      TIMFMT(*HMS)
+     A                                      TIMSEP(:)
+     A            PAGEFLD        4A  O  2  2
+     A                                      PAGNBR
+     A            USERFLD       10A  O  3  2
+     A                                      USER
+     A            F1NWFLD       11D 0I  5  6
+     A          R CUSTOMER
+     A            RECKEY         4A  H  1  1
+     A                                  4  2'Customer #:'
+     A            CUSTNO         6D 0I  4 15
+     A                                      COLOR(BLU)
+     A                                      DSPATR(UL)
+     A                                  5  2'Name:'
+     A            CUSTNAME      25A  I  5 15
+     A                                      COLOR(BLU)
+     A                                  7  2'Balance:'
+     A            BALANCE        9D 2O  7 15
+     A                                      COLOR(RED)
+     A                                      DSPATR(HI)
+     A                                  8  2'Status:'
+     A            STATUS         1A  B  8 15
+     A                                      COLOR(YLW)
+     A  80                             10  2'Promo Code:'
+     A  80        PROMO         10A  I 10 15
+     A                                      COLOR(GRN)
+     A                                 23  2'F3=Exit  F12=Cancel'
+     A          R SFLREC
+     A            ITEM          15A  O  7  3
+     A            QTY            3D 0I  7 21
+     A            PRICE          7D 2O  7 26
+     A          R SFLCTLFMT
+     A                                      SFLCTL(SFLREC)
+     A                                      SFLSIZ(0010)
+     A                                      SFLPAG(0005)
+     A                                      SFLDSP
+     A                                      SFLDSPCTL
+     A                                      SFLCLR
+     A                                  6  3'Item'
+     A                                      DSPATR(UL)
+     A                                      DSPATR(UL)
+     A                                  6 26'Price'
+     A                                      DSPATR(UL)
+
+
+     A                                      WINDOW(3 20 8 40)
+     A                                      WDWBORDER(*COLOR BLU)
+     A                                      WDWTITLE(*TEXT 'Confirm Delete' *COLOR WHT *TOP *CENTER)
+     A            TEXT10         0undefined 0O  3 12
+     A                                  6 22'delete this record?'
+     A            CONFIRM        1A  B  8 22
+     A                                      COLOR(YLW)
+     A                                  8 24'(Y/N)'
+     A          R FOOTER
+     A                                      CF03(03)
+     A                                 23  2'F3=Exit'
+     A                                      COLOR(BLU)

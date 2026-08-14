@@ -7,10 +7,33 @@
  * @typedef {import("konva").default.Stage} Stage
  * @typedef {import("konva").default.Group} Group
  * @typedef {import("konva").default.Layer} Layer
- * @typedef {{label: string, id?: string, value: string}} Property 
+ * @typedef {{label: string, id?: string, value: string, options?: {label: string, value: string}[]}} Property
  * @typedef {{[key: string]: string}} NewProperties
  * @typedef {{title: string, html: string|Element, open?: boolean}} Section
  */
+
+// Surfaces uncaught errors directly in the webview, since the extension host's
+// devtools picker doesn't reliably target this webview over others (e.g. chat).
+function showRendererError(error) {
+  console.error(error);
+
+  let banner = document.getElementById(`rendererErrorBanner`);
+  if (!banner) {
+    banner = document.createElement(`div`);
+    banner.id = `rendererErrorBanner`;
+    banner.style.background = `#5a1d1d`;
+    banner.style.color = `white`;
+    banner.style.padding = `0.5em 1em`;
+    banner.style.fontFamily = `monospace`;
+    banner.style.whiteSpace = `pre-wrap`;
+    document.body.prepend(banner);
+  }
+
+  banner.textContent = (error && error.stack) ? error.stack : String(error);
+}
+
+window.addEventListener(`error`, (event) => showRendererError(event.error || event.message));
+window.addEventListener(`unhandledrejection`, (event) => showRendererError(event.reason));
 
 const colours = {
   RED: `red`,
@@ -48,7 +71,25 @@ const GLOBAL_RECORD_FORMAT = `_GLOBAL`;
 
 const vscode = acquireVsCodeApi();
 
-const pxwPerChar = 8.45;
+const FONT_SIZE = 14;
+const FONT_FAMILY = `Consolas, "Liberation Mono", Menlo, Courier, monospace`;
+
+// Measures the font's real glyph advance width so the pixel grid used for
+// field positions/widths stays in lockstep with what the canvas actually draws.
+/**
+ * @param {string} fontFamily
+ * @param {number} fontSize
+ */
+function measureCharWidth(fontFamily, fontSize) {
+  const canvas = document.createElement(`canvas`);
+  const ctx = canvas.getContext(`2d`);
+  ctx.font = `${fontSize}px ${fontFamily}`;
+
+  const sample = `0`.repeat(50);
+  return ctx.measureText(sample).width / sample.length;
+}
+
+const pxwPerChar = measureCharWidth(FONT_FAMILY, FONT_SIZE);
 const pxhPerLine = 20;
 const pxhPerChar = 12.5;
 
@@ -82,8 +123,55 @@ let activeDocumentType = undefined;
 /** @type {string|undefined} */
 let lastSelectedFormat = undefined;
 
+// Other formats to render layered on top of lastSelectedFormat, previewing how
+// the screen looks when an RPG program WRITEs several formats without clearing
+// between them. Only used in preview mode.
+/** @type {Set<string>} */
+let composedFormats = new Set();
+
+// Edit mode (default) shows only the focused format, fully interactive - like
+// RDi's "Design Records". Preview mode shows the focused format plus any
+// composed formats, entirely read-only - like RDi's "Preview" page.
+let previewMode = false;
+
 /** @type {Stage|undefined} */
 let existingStage = undefined;
+
+// Which indicators are currently "on", for previewing conditional display in
+// the renderer. This is session-only UI state - indicator values aren't part
+// of the DDS source, they're supplied at runtime, so this never gets saved.
+/** @type {Set<number>} */
+let activeIndicators = new Set();
+
+/**
+ * @param {import('./dspf.d.ts').Conditional[]} conditions
+ */
+function indicatorsSatisfied(conditions) {
+  // Only AND is supported: the DDS AND/OR relator column between condition
+  // groups isn't parsed yet (see DisplayFile.parseConditionals), so every
+  // condition on a field/keyword is treated as required together.
+  return conditions.every(cond => activeIndicators.has(cond.indicator) !== cond.negate);
+}
+
+/**
+ * @returns {number[]} every indicator referenced anywhere in the document, sorted.
+ */
+function getReferencedIndicators() {
+  /** @type {Set<number>} */
+  const indicators = new Set();
+
+  const collect = (conditions) => conditions.forEach(c => indicators.add(c.indicator));
+
+  (activeDocument?.formats || []).forEach(format => {
+    format.keywords.forEach(keyword => collect(keyword.conditions));
+    format.fields.forEach(field => {
+      collect(field.conditions);
+      field.keywords.forEach(keyword => collect(keyword.conditions));
+    });
+  });
+
+  return Array.from(indicators).sort((a, b) => a - b);
+}
 
 /**
  * @param {DisplayFile} newDoc 
@@ -131,8 +219,8 @@ function setWindowForFormat(chosenFormat) {
           if (parts.length >= 2) {
             const [height, width] = parts;
 
-            renderWidth = widthInP(Number(width));
-            renderHeight = heightInP(Number(height));
+            renderWidth = Number(width);
+            renderHeight = Number(height);
           } else if (parts.length === 1) {
             switch (parts[0].toUpperCase()) {
               case '*DS4':
@@ -177,7 +265,37 @@ function setWindowForFormat(chosenFormat) {
 
   layer.add(bg);
 
-  renderSelectedFormat(layer, selectedFormat);
+  // Editing always targets whichever format is focused here, regardless of
+  // what else gets layered on top below. In preview mode nothing is
+  // editable at all, including the focused format itself.
+  lastSelectedFormat = chosenFormat;
+
+  const formatsToRender = [{ format: selectedFormat, displayOnly: previewMode }];
+
+  // Layer any other checked formats on top, read-only, but only in preview
+  // mode - edit mode always shows just the focused format.
+  if (previewMode) {
+    composedFormats.forEach(name => {
+      if (name === chosenFormat) { return; }
+
+      const composedFormat = activeDocument.formats.find(currentFormat => currentFormat.name === name);
+      if (composedFormat) {
+        formatsToRender.push({ format: composedFormat, displayOnly: true });
+      }
+    });
+  }
+
+  // Windows always draw on top of everything else, whether they're the
+  // focused format or a composed one - Array#sort is stable, so this only
+  // reorders windows-vs-non-windows and otherwise preserves the order above.
+  formatsToRender.sort((a, b) => Number(a.format.isWindow) - Number(b.format.isWindow));
+
+  // Routing through renderSelectedFormat (not addFieldsToLayer directly) means
+  // a composed format that's itself a window still gets its border/background drawn.
+  formatsToRender.forEach(({ format, displayOnly }) => {
+    renderSelectedFormat(layer, format, displayOnly);
+  });
+
   existingStage.add(layer);
 
   updateRecordFormatSidebar(selectedFormat, globalFormat);
@@ -185,13 +303,12 @@ function setWindowForFormat(chosenFormat) {
 }
 
 /**
- * 
- * @param {Layer} layer 
- * @param {RecordInfo} [format] 
+ *
+ * @param {Layer} layer
+ * @param {RecordInfo} [format]
+ * @param {boolean} [displayOnly] render read-only, for a format composed alongside the focused one
  */
-function renderSelectedFormat(layer, format) {
-  lastSelectedFormat = format.name;
-
+function renderSelectedFormat(layer, format, displayOnly = false) {
   /** @type {RecordInfo|undefined} */
   let windowFormat;
 
@@ -201,11 +318,7 @@ function renderSelectedFormat(layer, format) {
   /** @type {FieldInfo|undefined} */
   let windowTitle;
 
-  /** @type {RecordInfo} */
-  let recordFormat;
-  if (format) {
-    recordFormat = activeDocument.formats.find(currentFormat => currentFormat.name === lastSelectedFormat);
-  }
+  const recordFormat = format;
 
   if (recordFormat) {
     if (recordFormat.isWindow) {
@@ -246,13 +359,14 @@ function renderSelectedFormat(layer, format) {
           name: `WINDOWTITLE`,
           displayType: `const`,
           type: `A`,
-          primitiveType: `char`
+          primitiveType: `char`,
+          keywords: []
         };
 
         let xPositionValue = `center`;
         let yPositionValue = `top`;
 
-        parts = Render.parseParms(windowInfo.value);
+        parts = parseParms(windowInfo.value);
 
         parts.forEach((part, index) => {
           switch (part.toUpperCase()) {
@@ -323,8 +437,12 @@ function renderSelectedFormat(layer, format) {
   if (windowFormat) {
     // If this is a window, add the window CSS
       if (windowConfig) {
-        const windowColor = colors[windowConfig.color] || colors.BLU;
+        const windowColor = colours[windowConfig.color] || colours.BLU;
 
+        // Windows have an opaque interior in a real 5250 session - they cover
+        // whatever's underneath, not just outline it. Matters most when this
+        // format is composed on top of another one that already drew content
+        // in the same area.
         /** @type {Rect} */
         const windowRect = new Konva.Rect({
           id: windowFormat.name,
@@ -332,6 +450,7 @@ function renderSelectedFormat(layer, format) {
           y: windowConfig.y,
           width: windowConfig.width,
           height: windowConfig.height,
+          fill: colours.BLK,
           stroke: windowColor,
         });
 
@@ -347,14 +466,14 @@ function renderSelectedFormat(layer, format) {
       }
 
       if (windowFormat.name !== format.name) {
-        renderSelectedFormat(layer, windowFormat);
+        renderSelectedFormat(layer, windowFormat, displayOnly);
       }
     }
 
   // TODO: handle window
   // TODO: make format optional
   if (format) {
-    addFieldsToLayer(layer, format);
+    addFieldsToLayer(layer, format, displayOnly);
   }
 }
 
@@ -363,7 +482,7 @@ function renderSelectedFormat(layer, format) {
  * @param {*} layer 
  * @param {RecordInfo} format 
  */
-function addFieldsToLayer(layer, format) {
+function addFieldsToLayer(layer, format, displayOnly = false) {
   const subfileFormat = format.keywords.find(keyword => keyword.name === `SFLCTL`);
   // TODO: handle when subFileFormat is found
 
@@ -375,27 +494,20 @@ function addFieldsToLayer(layer, format) {
 
     if (subfileRecord) {
       const subfileFields = subfileRecord.fields.filter(field => field.displayType !== `hidden` && field.position.x > 0 && field.position.y > 0);
-      
+
       const low = Math.min(...subfileFields.map(field => field.position.y));
       const high = Math.max(...subfileFields.map(field => field.position.y));
       const linesPerItem = (high - low) + 1;
-      
+
       for (let row = 0; row < rows; row++) {
         subfileFields.forEach(field => {
           // TODO: these fields cant be edited in this format
           let subField = JSON.parse(JSON.stringify(field));
           subField.position.y += (row * linesPerItem);
-          let canDisplay = true;
 
-          // field.conditions.forEach(cond => {
-          //   if (this.indicators[cond.indicator] !== (cond.negate ? false : true)) {
-          //     canDisplay = false;
-          //   }
-          // });
-          
-          if (canDisplay) {
+          if (indicatorsSatisfied(field.conditions)) {
             subField.name = `${field.name}_${row}`;
-            const content = getElement(subField, true);
+            const content = getElement(subField, true, subfileRecord.name);
             layer.add(content);
           }
         });
@@ -403,23 +515,14 @@ function addFieldsToLayer(layer, format) {
 
 
     } else {
-      throw new Error(`Unable to find SFLCTL format ${subfileFormat} from ${recordFormat}`);
+      throw new Error(`Unable to find SFLCTL format ${subfileFormat.value} from ${format.name}`);
     }
   }
 
   const fields = format.fields.filter(field => field.displayType !== `hidden`);
   fields.forEach(field => {
-    let canDisplay = true;
-
-    field.conditions.forEach(cond => {
-      // TODO: indicator support?
-      // if (this.indicators[cond.indicator] !== (cond.negate ? false : true)) {
-      //   canDisplay = false;
-      // }
-    });
-
-    if (canDisplay) {
-      const content = getElement(field);
+    if (indicatorsSatisfied(field.conditions)) {
+      const content = getElement(field, displayOnly, format.name);
       layer.add(content);
     }
   });
@@ -431,7 +534,9 @@ function addFieldsToLayer(layer, format) {
  * @returns {Konva.Group|undefined}
  */
 function renderSpecificField(fieldInfo) {
-  const existingField = existingStage.findOne(`#${fieldInfo.name}`);
+  // Editing always targets the focused tab, even when other formats are
+  // composed alongside it - see getElement()'s formatName param.
+  const existingField = existingStage.findOne(`#${elementId(lastSelectedFormat, fieldInfo.name)}`);
 
   if (existingField) {
     existingField.destroy();
@@ -440,19 +545,26 @@ function renderSpecificField(fieldInfo) {
   const formatLayer = existingStage.findOne(`#${lastSelectedFormat}`);
 
   if (formatLayer) {
-    const content = getElement(fieldInfo);
+    const content = getElement(fieldInfo, false, lastSelectedFormat);
     formatLayer.add(content);
 
     return content;
   }
 }
 
+function elementId(formatName, fieldName) {
+  return `${formatName}::${fieldName}`;
+}
+
 /**
- * @param {FieldInfo} fieldInfo 
+ * @param {FieldInfo} fieldInfo
+ * @param {boolean} [displayOnly]
+ * @param {string} [formatName] the record format this field belongs to, so its
+ *   canvas id doesn't collide with a same-named field in another composed format
  */
-function getElement(fieldInfo, displayOnly = false) {
+function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFormat) {
   const boxInfo = {
-    id: fieldInfo.name,
+    id: elementId(formatName, fieldInfo.name),
     x: widthInP(fieldInfo.position.x - 1),
     y: heightInP(fieldInfo.position.y - 1),
     width: 0,
@@ -467,7 +579,10 @@ function getElement(fieldInfo, displayOnly = false) {
     textDecoration: ``
   };
 
-  const keywords = fieldInfo.keywords;
+  // Only keywords whose conditioning indicators are currently satisfied apply -
+  // e.g. a field with two COLOR keywords gated by different indicators only
+  // shows whichever one is actually "on" in the current indicator preview.
+  const keywords = fieldInfo.keywords.filter(keyword => indicatorsSatisfied(keyword.conditions));
 
   keywords.forEach(keyword => {
     const key = keyword.name;
@@ -565,7 +680,6 @@ function getElement(fieldInfo, displayOnly = false) {
     .padEnd(displayLength, padString);
 
   boxInfo.width = widthInP(displayLength);
-  labelInfo.width = widthInP(displayLength);
 
   let group = new Konva.Group(boxInfo);
 
@@ -634,8 +748,10 @@ function getElement(fieldInfo, displayOnly = false) {
   // add text to the label
   group.add(new Konva.Text({
     text: displayValue,
-    fontSize: 14,
-    fontFamily: `Consolas, "Liberation Mono", Menlo, Courier, monospace`,
+    width: boxInfo.width,
+    wrap: `none`,
+    fontSize: FONT_SIZE,
+    fontFamily: FONT_FAMILY,
     fill: labelInfo.colour,
     fontStyle: labelInfo.fontStyle,
     textDecoration: labelInfo.textDecoration,
@@ -686,7 +802,13 @@ function parseParms(string) {
 function setTabs(recordFormats, setActiveTab) {
   // Defined like: <vscode-tabs id="recordFormatTabs" selected-index="0" fixed-pane="start">
   const tabs = document.getElementById(`recordFormatTabs`);
-  tabs.innerHTML = recordFormats.map(f => 
+
+  // Formats that no longer exist (e.g. renamed/deleted) shouldn't stay composed.
+  composedFormats.forEach(name => {
+    if (!recordFormats.includes(name)) { composedFormats.delete(name); }
+  });
+
+  tabs.innerHTML = recordFormats.map(f =>
     `<vscode-tab-header name="${f}" slot="header">${f}</vscode-tab-header>`
   ).join(``);
 
@@ -767,6 +889,31 @@ function updateRecordFormatSidebar(recordInfo, globalInfo) {
   /** @type {Section[]} */
   let sections = [];
 
+  if (previewMode) {
+    const otherFormats = activeDocument.formats
+      .filter(format => format.name !== GLOBAL_RECORD_FORMAT && format.name !== recordInfo.name)
+      .map(format => format.name);
+
+    if (otherFormats.length > 0) {
+      sections.push({
+        title: `Composed Formats`,
+        html: createComposedFormatsPanel(otherFormats),
+        // Stay open across the re-render a toggle triggers, once anything's composed.
+        open: composedFormats.size > 0
+      });
+    }
+  }
+
+  const referencedIndicators = getReferencedIndicators();
+  if (referencedIndicators.length > 0) {
+    sections.push({
+      title: `Indicators`,
+      html: createIndicatorsPanel(referencedIndicators),
+      // Stay open across the re-render a toggle triggers, once any indicator is on.
+      open: activeIndicators.size > 0
+    });
+  }
+
   if (globalInfo) {
     // Section for keywords that apply to the entire file
     sections.push({
@@ -776,22 +923,112 @@ function updateRecordFormatSidebar(recordInfo, globalInfo) {
     });
   }
 
-  // Section for keywords on the record format
+  // Section for keywords on the record format - read-only in preview mode,
+  // same as everything else there.
 
   sections.push({
     title: `Format Keywords`,
-    html: createKeywordPanel(`keywords-${recordInfo.name}`, recordInfo.keywords, (keywords) => {
+    html: createKeywordPanel(`keywords-${recordInfo.name}`, recordInfo.keywords, previewMode ? undefined : (keywords) => {
       sendFormatHeaderUpdate(recordInfo.name, keywords);
     }),
     open: true
   });
 
   renderSections(sidebar, sections);
+
+  const modeToggle = document.createElement(`vscode-checkbox`);
+  modeToggle.setAttribute(`label`, `Preview mode`);
+  modeToggle.setAttribute(`title`, `Show a read-only preview of this format together with any composed formats and indicators, instead of editing it directly.`);
+  modeToggle.style.display = `block`;
+  modeToggle.style.margin = `0.5em 1em`;
+  if (previewMode) {
+    modeToggle.setAttribute(`checked`, `true`);
+  }
+  modeToggle.addEventListener(`change`, () => {
+    previewMode = modeToggle.checked;
+    if (lastSelectedFormat) {
+      setWindowForFormat(lastSelectedFormat);
+    }
+  });
+  sidebar.insertBefore(modeToggle, sidebar.firstChild);
+}
+
+/**
+ * @param {number[]} indicatorNumbers
+ */
+function createIndicatorsPanel(indicatorNumbers) {
+  const section = document.createElement(`div`);
+
+  indicatorNumbers.forEach(indicator => {
+    const checkbox = document.createElement(`vscode-checkbox`);
+    checkbox.setAttribute(`label`, `Indicator ${indicator}`);
+    checkbox.style.display = `block`;
+    checkbox.style.margin = `0.25em 1em`;
+
+    if (activeIndicators.has(indicator)) {
+      checkbox.setAttribute(`checked`, `true`);
+    }
+
+    checkbox.addEventListener(`change`, () => {
+      if (checkbox.checked) {
+        activeIndicators.add(indicator);
+      } else {
+        activeIndicators.delete(indicator);
+      }
+
+      if (lastSelectedFormat) {
+        setWindowForFormat(lastSelectedFormat);
+      }
+    });
+
+    section.appendChild(checkbox);
+  });
+
+  return section;
+}
+
+/**
+ * @param {string[]} formatNames every format other than the currently focused one
+ */
+function createComposedFormatsPanel(formatNames) {
+  const section = document.createElement(`div`);
+
+  formatNames.forEach(name => {
+    const checkbox = document.createElement(`vscode-checkbox`);
+    checkbox.setAttribute(`label`, name);
+    checkbox.style.display = `block`;
+    checkbox.style.margin = `0.25em 1em`;
+
+    if (composedFormats.has(name)) {
+      checkbox.setAttribute(`checked`, `true`);
+    }
+
+    checkbox.addEventListener(`change`, () => {
+      if (checkbox.checked) {
+        composedFormats.add(name);
+      } else {
+        composedFormats.delete(name);
+      }
+
+      if (lastSelectedFormat) {
+        setWindowForFormat(lastSelectedFormat);
+      }
+    });
+
+    section.appendChild(checkbox);
+  });
+
+  return section;
 }
 
 function clearFieldInfo() {
   const sidebar = document.getElementById(`fieldInfoSidebar`);
   sidebar.innerHTML = ``;
+
+  if (previewMode) {
+    // Nothing is editable in preview mode - there's no field to add these to.
+    return;
+  }
 
   /**
    * @param {string} label 
@@ -819,20 +1056,77 @@ function clearFieldInfo() {
 
   // Creates: <vscode-button secondary>Secondary button</vscode-button>
   
-  sidebar.appendChild(createButton(`Named field`, `add`));
-  sidebar.appendChild(createButton(`Date field`, `calendar`));
-  sidebar.appendChild(createButton(`Time field`, `calendar`));
-  sidebar.appendChild(createButton(`Timestamp field`, `calendar`));
+  sidebar.appendChild(createButton(`Named field`, `add`, {
+    name: `NEWFLD1`,
+    type: `A`,
+    length: 10,
+    decimals: 0,
+    displayType: `input`,
+    position: {x: 1, y: 1},
+    keywords: [],
+    conditions: [],
+  }));
+  sidebar.appendChild(createButton(`Date field`, `calendar`, {
+    name: `DATEFLD`,
+    type: `L`,
+    length: 8,
+    decimals: 0,
+    displayType: `output`,
+    position: {x: 1, y: 1},
+    keywords: [{name: `DATFMT`, value: `*ISO`, conditions: []}],
+    conditions: [],
+  }));
+  sidebar.appendChild(createButton(`Time field`, `calendar`, {
+    name: `TIMEFLD`,
+    type: `T`,
+    length: 8,
+    decimals: 0,
+    displayType: `output`,
+    position: {x: 1, y: 1},
+    keywords: [{name: `TIMFMT`, value: `*ISO`, conditions: []}],
+    conditions: [],
+  }));
+  // Timestamp fields aren't wired up yet: the parser only special-cases
+  // types L (date) and T (time), not Z (timestamp), so there's no
+  // primitiveType/keyword support to generate a working field from here.
 
   sidebar.appendChild(createButton(`Constant text`, `symbol-constant`, {
     value: `Constant`,
     position: {x: 1, y: 1},
     displayType: `const`,
     keywords: [],
+    conditions: [],
   }));
-  sidebar.appendChild(createButton(`System name constant`, `account`));
-  sidebar.appendChild(createButton(`Date constant`, `calendar`));
-  sidebar.appendChild(createButton(`Time constant`, `calendar`));
+  sidebar.appendChild(createButton(`System name constant`, `account`, {
+    name: `SYSFLD`,
+    type: `A`,
+    length: 8,
+    decimals: 0,
+    displayType: `output`,
+    position: {x: 1, y: 1},
+    keywords: [{name: `SYSNAME`, value: undefined, conditions: []}],
+    conditions: [],
+  }));
+  sidebar.appendChild(createButton(`Date constant`, `calendar`, {
+    name: `DATECST`,
+    type: `L`,
+    length: 8,
+    decimals: 0,
+    displayType: `output`,
+    position: {x: 1, y: 1},
+    keywords: [{name: `DATFMT`, value: `*ISO`, conditions: []}],
+    conditions: [],
+  }));
+  sidebar.appendChild(createButton(`Time constant`, `calendar`, {
+    name: `TIMECST`,
+    type: `T`,
+    length: 8,
+    decimals: 0,
+    displayType: `output`,
+    position: {x: 1, y: 1},
+    keywords: [{name: `TIMFMT`, value: `*ISO`, conditions: []}],
+    conditions: [],
+  }));
 }
 
 /**
@@ -849,11 +1143,16 @@ function updateSelectedFieldSidebar(fieldInfo) {
   const properties = [];
 
   if (fieldInfo.name) {
-    properties.push({ label: `Name`, value: fieldInfo.name });
+    properties.push({ label: `Name`, value: fieldInfo.name, id: `name` });
   }
 
   properties.push(
-    { label: `Display Type`, value: fieldInfo.displayType },
+    { label: `Display Type`, value: fieldInfo.displayType, id: `displayType`, options: [
+      { label: `Input`, value: `input` },
+      { label: `Output`, value: `output` },
+      { label: `Both`, value: `both` },
+      { label: `Hidden`, value: `hidden` },
+    ] },
     { label: `Position`, value: `${fieldInfo.position.x}, ${fieldInfo.position.y}` },
   );
 
@@ -863,7 +1162,10 @@ function updateSelectedFieldSidebar(fieldInfo) {
 
   if (fieldInfo.type) {
     properties.push(
-      { label: `Type`, value: fieldInfo.type },
+      { label: `Type`, value: fieldInfo.type, id: `type`, options: [
+        { label: `Alpha`, value: `A` },
+        { label: `Numeric`, value: `D` },
+      ] },
       { label: `Length`, value: fieldInfo.length, id: `length` },
     );
 
@@ -878,12 +1180,14 @@ function updateSelectedFieldSidebar(fieldInfo) {
       open: true,
       // TODO: swap this to createKeywordPanel
       html: createValuesPanel(`properties-${fieldInfo.name}`, properties, (newProps) => {
+        const originalFieldName = fieldInfo.name;
+
         fieldInfo = {
           ...fieldInfo,
           ...newProps
         };
 
-        sendFieldUpdate(lastSelectedFormat, fieldInfo.name, fieldInfo);
+        sendFieldUpdate(lastSelectedFormat, originalFieldName, fieldInfo);
       })
     },
     {
@@ -1068,6 +1372,7 @@ function createKeywordPanel(id, inputKeywords, onUpdate) {
           keywords.splice(oldKeywordIndex, 1);
         }
         rerenderTree();
+        onUpdate(keywords);
         break;
 
       case `edit`:
@@ -1080,6 +1385,7 @@ function createKeywordPanel(id, inputKeywords, onUpdate) {
 
           clearKeywordEditor();
           rerenderTree();
+          onUpdate(keywords);
         }, event.detail.value);
         break;
     }
@@ -1090,33 +1396,21 @@ function createKeywordPanel(id, inputKeywords, onUpdate) {
   if (onUpdate) {
     const newKeyword = document.createElement(`vscode-button`);
     newKeyword.setAttribute(`icon`, `add`);
-  
+
     newKeyword.innerText = `New Keyword`;
     newKeyword.style.margin = `1em`;
     newKeyword.style.display = `block`;
-    
+
     newKeyword.addEventListener(`click`, (e) => {
       editKeyword((newKeyword) => {
         keywords.push(newKeyword);
         clearKeywordEditor();
         rerenderTree();
+        onUpdate(keywords);
       });
     });
 
-    const updateButton = document.createElement(`vscode-button`);
-    updateButton.innerText = `Update`;
-    
-    // Center the button
-    updateButton.style.margin = `1em`;
-    updateButton.style.display = `block`;
-
-    updateButton.addEventListener(`click`, (e) => {
-      // As we update keywords, the `keywords` variable is updated
-      onUpdate(keywords);
-    });
-
     section.appendChild(newKeyword);
-    section.appendChild(updateButton);
   }
 
   return section;
@@ -1133,72 +1427,98 @@ function createValuesPanel(id, properties, onUpdate) {
   const section = document.createElement(`div`);
   section.id = id;
 
-  const createLabelCell = (label) => {
-    const cell = document.createElement(`vscode-table-cell`);
-    cell.innerText = label;
-    return cell;
+  // vscode-table-cell forces `overflow: hidden`, which clips a select's dropdown
+  // popup (it's position:absolute relative to itself, not portaled to <body>) so
+  // it never becomes visible when opened. A form-group layout has no such clip.
+  const group = document.createElement(`vscode-form-group`);
+  group.setAttribute(`variant`, `vertical`);
+  group.style.padding = `0 1em`;
+
+  const createRow = (label) => {
+    const row = document.createElement(`div`);
+    row.style.display = `flex`;
+    row.style.alignItems = `center`;
+    row.style.gap = `0.75em`;
+    row.style.marginBottom = `0.5em`;
+
+    const labelElement = document.createElement(`vscode-label`);
+    labelElement.innerText = label;
+    labelElement.style.minWidth = `6em`;
+    labelElement.style.flexShrink = `0`;
+    row.appendChild(labelElement);
+
+    return row;
   };
 
-  const createInputCell = (id, value, placeHolder) => {
-    const cell = document.createElement(`vscode-table-cell`);
+  // Every edit applies immediately (no Update button) - collectValues() always
+  // reads the full set of controls so each change sends a consistent snapshot,
+  // not just the one field that changed.
+  const collectValues = () => {
+    /** @type {{[key: string]: string}} */
+    const values = {};
 
-    const input = document.createElement(`code`);
-    input.id = id;
-    input.innerText = value;
-    input.setAttribute(`contenteditable`, `true`);
-
-    cell.appendChild(input);
-
-    return cell;
-  };
-
-  const table = document.createElement(`vscode-table`);
-  table.id = id;
-
-  const tableBody = document.createElement(`vscode-table-body`);
-
-  const hasEditableData = properties.some(prop => prop.id !== undefined);
-
-  for (let prop of properties) {
-    const row = document.createElement(`vscode-table-row`);
-
-    row.appendChild(createLabelCell(prop.label));
-
-    if (prop.id) {
-      row.append(createInputCell(prop.id, prop.value, `no value`));
-    } else {
-      row.append(createLabelCell(prop.value));
-    }
-
-    tableBody.appendChild(row);
-  }
-
-  table.appendChild(tableBody);
-  section.appendChild(table);
-
-  if (hasEditableData) {
-    const updateButton = document.createElement(`vscode-button`);
-    updateButton.innerText = `Update`;
-
-    // Center the button
-    updateButton.style.margin = `1em`;
-    updateButton.style.display = `block`;
-
-    updateButton.addEventListener(`click`, (e) => {
-      const values = section.querySelectorAll(`[contenteditable]`);
-
-      /** @type {{[key: string]: string}} */
-      let newProperties = {};
-
-      values.forEach(field => {
-        newProperties[field.id] = field.innerText;
-      });
-
-      onUpdate(newProperties);
+    section.querySelectorAll(`[data-field-id]`).forEach(field => {
+      values[field.dataset.fieldId] = field.tagName === `VSCODE-SINGLE-SELECT` ? field.value : field.innerText;
     });
 
-    section.appendChild(updateButton);
+    return values;
+  };
+
+  const createInputElement = (fieldId, value) => {
+    const input = document.createElement(`code`);
+    input.dataset.fieldId = fieldId;
+    input.innerText = value;
+    input.setAttribute(`contenteditable`, `true`);
+    input.style.display = `inline-block`;
+    input.style.flex = `1`;
+    input.style.padding = `0.2em 0.5em`;
+    input.style.border = `1px solid var(--vscode-settings-textInputBorder, transparent)`;
+    input.style.borderRadius = `2px`;
+    input.style.background = `var(--vscode-settings-textInputBackground)`;
+    input.style.color = `var(--vscode-settings-textInputForeground)`;
+    input.addEventListener(`blur`, () => onUpdate(collectValues()));
+
+    return input;
+  };
+
+  const createSelectElement = (fieldId, value, options) => {
+    const select = document.createElement(`vscode-single-select`);
+    select.dataset.fieldId = fieldId;
+    select.style.flex = `1`;
+    // Assigning slotted <vscode-option> children only registers reliably once
+    // the element is connected and a slotchange fires - fragile when building
+    // the whole tree detached, as we do here. Setting .options directly writes
+    // the component's internal state synchronously, so selection works immediately.
+    // The initial selection isn't derived from the `selected` flags in that path
+    // though - it has to be set explicitly via .value.
+    select.options = options.map(option => ({
+      label: option.label,
+      value: option.value,
+    }));
+    select.value = value;
+
+    select.addEventListener(`change`, () => onUpdate(collectValues()));
+
+    return select;
+  };
+
+  for (let prop of properties) {
+    const row = createRow(prop.label);
+
+    if (prop.options) {
+      row.appendChild(createSelectElement(prop.id, prop.value, prop.options));
+    } else if (prop.id) {
+      row.appendChild(createInputElement(prop.id, prop.value));
+    } else {
+      const plainValue = document.createElement(`div`);
+      plainValue.innerText = prop.value;
+      row.appendChild(plainValue);
+    }
+
+    group.appendChild(row);
   }
+
+  section.appendChild(group);
 
   return section;
 }
@@ -1244,17 +1564,12 @@ function editKeyword(onUpdate, keyword) {
       options.push(String(i));
     }
 
-    options.forEach(option => {
-      const optionElement = document.createElement(`vscode-option`);
-      optionElement.setAttribute(`value`, option);
-      optionElement.innerText = option;
-
-      if (option === defaultValue) {
-        optionElement.setAttribute(`selected`, `true`);
-      }
-
-      select.appendChild(optionElement);
-    });
+    select.options = options.map(option => ({
+      label: option,
+      value: option,
+    }));
+    // defaultValue is the numeric indicator (or undefined); options are strings.
+    select.value = defaultValue !== undefined ? String(defaultValue) : `None`;
 
     return select;
   };

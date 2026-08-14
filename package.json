@@ -18,7 +18,7 @@
       {
         "command": "vscode-ibmi-renderer.launchRenderer",
         "title": "Launch Renderer",
-        "icon": "$(search)"
+        "icon": "$(open-preview)"
       }
     ],
     "menus": {
