@@ -1146,19 +1146,26 @@ function updateSelectedFieldSidebar(fieldInfo) {
     properties.push({ label: `Name`, value: fieldInfo.name, id: `name` });
   }
 
-  properties.push(
-    { label: `Display Type`, value: fieldInfo.displayType, id: `displayType`, options: [
-      { label: `Input`, value: `input` },
-      { label: `Output`, value: `output` },
-      { label: `Both`, value: `both` },
-      { label: `Hidden`, value: `hidden` },
-    ] },
-    { label: `Position`, value: `${fieldInfo.position.x}, ${fieldInfo.position.y}` },
-  );
-
   if (fieldInfo.displayType === `const`) {
+    // A constant's displayType isn't one of input/output/both/hidden, so the
+    // dropdown below can't represent it - showing it risked corrupting the
+    // field (collectValues() reads back "" for an unmatched selection, which
+    // then fails getLinesForField's `displayType === 'const'` check entirely,
+    // silently dropping the field's text from the generated DDS). There's
+    // also nothing useful to change here for a constant, so just leave it out.
     properties.push({ label: `Value`, value: fieldInfo.value, id: `value` });
+  } else {
+    properties.push(
+      { label: `Display Type`, value: fieldInfo.displayType, id: `displayType`, options: [
+        { label: `Input`, value: `input` },
+        { label: `Output`, value: `output` },
+        { label: `Both`, value: `both` },
+        { label: `Hidden`, value: `hidden` },
+      ] },
+    );
   }
+
+  properties.push({ label: `Position`, value: `${fieldInfo.position.x}, ${fieldInfo.position.y}` });
 
   if (fieldInfo.type) {
     properties.push(
@@ -1458,7 +1465,22 @@ function createValuesPanel(id, properties, onUpdate) {
     const values = {};
 
     section.querySelectorAll(`[data-field-id]`).forEach(field => {
-      values[field.dataset.fieldId] = field.tagName === `VSCODE-SINGLE-SELECT` ? field.value : field.innerText;
+      if (field.tagName === `VSCODE-SINGLE-SELECT`) {
+        // A select's .value comes back undefined when the field's actual
+        // value isn't one of its options (e.g. the Type dropdown only offers
+        // Alpha/Numeric, so a Date/Time field's real type doesn't match any
+        // option). Sending that through would overwrite the real value with
+        // literally the string "undefined" once it hits a template literal
+        // in getLinesForField - corrupting the field and, since that throws
+        // off fixed-column parsing on reload, potentially every line after
+        // it too. Leaving the key out entirely just leaves that property
+        // untouched instead.
+        if (field.value) {
+          values[field.dataset.fieldId] = field.value;
+        }
+      } else {
+        values[field.dataset.fieldId] = field.innerText;
+      }
     });
 
     return values;

@@ -12,9 +12,8 @@
      A                                      TIMSEP(:)
      A            PAGEFLD        4A  O  2  2
      A                                      PAGNBR
-     A            USERFLD       10A  O  3  2
+     A            USERFLD       10A  O 24  2
      A                                      USER
-     A            F1NWFLD       11D 0I  5  6
      A          R CUSTOMER
      A            RECKEY         4A  H  1  1
      A                                  4  2'Customer #:'
@@ -35,10 +34,11 @@
      A  80        PROMO         10A  I 10 15
      A                                      COLOR(GRN)
      A                                 23  2'F3=Exit  F12=Cancel'
+     A                                      DSPATR(UL)
      A          R SFLREC
-     A            ITEM          15A  O  7  3
-     A            QTY            3D 0I  7 21
-     A            PRICE          7D 2O  7 26
+     A            ITEM          15A  O  3  2
+     A            QTY            3D 0I  3 20
+     A            PRICE          7D 2O  3 26
      A          R SFLCTLFMT
      A                                      SFLCTL(SFLREC)
      A                                      SFLSIZ(0010)
@@ -46,22 +46,22 @@
      A                                      SFLDSP
      A                                      SFLDSPCTL
      A                                      SFLCLR
-     A                                  6  3'Item'
+     A                                  2  2'Item'
      A                                      DSPATR(UL)
+     A                                  2 20'Qty'
      A                                      DSPATR(UL)
-     A                                  6 26'Price'
+     A                                  2 26'Price'
      A                                      DSPATR(UL)
-
-
+     A          R CONFIRMWIN
      A                                      WINDOW(3 20 8 40)
      A                                      WDWBORDER(*COLOR BLU)
      A                                      WDWTITLE(*TEXT 'Confirm Delete' *COLOR WHT *TOP *CENTER)
-     A            TEXT10         0undefined 0O  3 12
+     A                                  5 22'Are you sure you want to'
      A                                  6 22'delete this record?'
      A            CONFIRM        1A  B  8 22
      A                                      COLOR(YLW)
      A                                  8 24'(Y/N)'
      A          R FOOTER
      A                                      CF03(03)
-     A                                 23  2'F3=Exit'
+     A                                 24 40'F3=Exit'
      A                                      COLOR(BLU)
