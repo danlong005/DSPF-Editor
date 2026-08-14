@@ -1,6 +1,6 @@
-**This repository is out of sync with the VS Code extension found in the Marketplace and in OpenVSX**. As we transition to a new DDS renderer, the old renderer is deprecated and replaced with this new real-time DDS editor.
-
 ## IBM i Renderer
+
+This project began as a fork of [codefori/vscode-ibmi-renderer](https://github.com/codefori/vscode-ibmi-renderer) and is now developed independently.
 
 ⚠️ Still in development. Not ready for production.
 
@@ -13,5 +13,3 @@ Current capabilities:
 - Edit format-level and file-level (screen) keywords
 - Preview mode: compose multiple record formats together read-only, to see how a screen looks when several formats are written (`WRITE`) without clearing between them (windows, subfiles, and indicator-conditioned fields all included)
 - Toggle indicators to preview conditional field/keyword visibility
-
-[See the project board](https://github.com/orgs/codefori/projects/7) for remaining functionality.

@@ -3,6 +3,14 @@
   "displayName": "vscode-ibmi-renderer",
   "description": "IBM i Renderer 2",
   "version": "0.0.1",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/danlong005/vscode-ibmi-renderer.git"
+  },
+  "bugs": {
+    "url": "https://github.com/danlong005/vscode-ibmi-renderer/issues"
+  },
+  "homepage": "https://github.com/danlong005/vscode-ibmi-renderer#readme",
   "engines": {
     "vscode": "^1.97.0"
   },
@@ -49,7 +57,7 @@
     "build:esbuild": "node esbuild.js",
     "build:tsc": "tsc --noEmit --project tsconfig.json",
     "getTsTypesForFile": "tsc --declaration --emitDeclarationOnly --outDir types && cp types/ui/dspf.d.ts webui/dspf.d.ts",
-    "package": "npm run check-types && npm run lint && node esbuild.js --production",
+    "package": "npm run build:frontend && npm run check-types && npm run lint && node esbuild.js --production",
     "check-types": "tsc --noEmit",
     "lint": "eslint src",
     "test": "vitest"
