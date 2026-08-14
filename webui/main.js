@@ -15,8 +15,6 @@
 // Surfaces uncaught errors directly in the webview, since the extension host's
 // devtools picker doesn't reliably target this webview over others (e.g. chat).
 function showRendererError(error) {
-  console.error(error);
-
   let banner = document.getElementById(`rendererErrorBanner`);
   if (!banner) {
     banner = document.createElement(`div`);
