@@ -1,0 +1,340 @@
+import { describe, expect, it } from "vitest";
+import { FakeElement } from "./webui-harness";
+import { loadWebui } from "./webui-harness";
+
+/** Finds and checks/unchecks one of createIndicatorsPanel's checkboxes by label, firing its change handler. */
+function toggleIndicatorCheckbox(panel: FakeElement, indicator: number, checked: boolean) {
+  const checkbox = panel.children.find(c => c.attributes.label === `Indicator ${indicator}`);
+  if (!checkbox) { throw new Error(`No checkbox for indicator ${indicator}`); }
+  checkbox.attributes.checked = checked ? `true` : `false`;
+  checkbox.trigger(`change`);
+}
+
+function cond(indicator: number, negate = false) {
+  return { indicator, negate };
+}
+
+/** Depth-first search for a FakeElement with a given dataset key, anywhere under root. */
+function findByDataFieldId(root: FakeElement, fieldId: string): FakeElement | undefined {
+  if (root.dataset.fieldId === fieldId) { return root; }
+  for (const child of root.children) {
+    const found = findByDataFieldId(child, fieldId);
+    if (found) { return found; }
+  }
+  return undefined;
+}
+
+describe(`indicatorsSatisfied`, () => {
+  it(`is satisfied with no conditions at all`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.indicatorsSatisfied([])).toBe(true);
+  });
+
+  it(`requires every listed indicator to be on (AND, not OR)`, () => {
+    const sandbox = loadWebui();
+    const panel = sandbox.createIndicatorsPanel([30, 40]);
+    toggleIndicatorCheckbox(panel, 30, true);
+    // 40 stays off
+
+    expect(sandbox.indicatorsSatisfied([cond(30)])).toBe(true);
+    expect(sandbox.indicatorsSatisfied([cond(40)])).toBe(false);
+    expect(sandbox.indicatorsSatisfied([cond(30), cond(40)])).toBe(false);
+
+    toggleIndicatorCheckbox(panel, 40, true);
+    expect(sandbox.indicatorsSatisfied([cond(30), cond(40)])).toBe(true);
+  });
+
+  it(`respects negation`, () => {
+    const sandbox = loadWebui();
+    const panel = sandbox.createIndicatorsPanel([50]);
+
+    // Indicator off: a negated condition on it is satisfied.
+    expect(sandbox.indicatorsSatisfied([cond(50, true)])).toBe(true);
+    expect(sandbox.indicatorsSatisfied([cond(50, false)])).toBe(false);
+
+    toggleIndicatorCheckbox(panel, 50, true);
+    expect(sandbox.indicatorsSatisfied([cond(50, true)])).toBe(false);
+    expect(sandbox.indicatorsSatisfied([cond(50, false)])).toBe(true);
+  });
+
+  it(`unchecking an indicator turns its conditions back off`, () => {
+    const sandbox = loadWebui();
+    const panel = sandbox.createIndicatorsPanel([60]);
+    toggleIndicatorCheckbox(panel, 60, true);
+    expect(sandbox.indicatorsSatisfied([cond(60)])).toBe(true);
+
+    toggleIndicatorCheckbox(panel, 60, false);
+    expect(sandbox.indicatorsSatisfied([cond(60)])).toBe(false);
+  });
+});
+
+describe(`getReferencedIndicators`, () => {
+  it(`collects indicators from field conditions, field keyword conditions, and format keyword conditions - deduped and sorted`, () => {
+    const sandbox = loadWebui();
+
+    const model = {
+      formats: [
+        {
+          name: `FMT1`,
+          keywords: [{ name: `SFLCLR`, value: undefined, conditions: [cond(90)] }],
+          fields: [
+            {
+              name: `FLD1`,
+              conditions: [cond(30)],
+              keywords: [{ name: `COLOR`, value: `RED`, conditions: [cond(30)] }],
+            },
+            {
+              name: `FLD2`,
+              conditions: [cond(10)],
+              keywords: [],
+            },
+          ],
+        },
+        {
+          name: `FMT2`,
+          keywords: [],
+          fields: [{ name: `FLD3`, conditions: [cond(90)], keywords: [] }],
+        },
+      ],
+    };
+
+    sandbox.loadDDS(model, `dds.dspf`, false);
+
+    expect(sandbox.getReferencedIndicators()).toEqual([10, 30, 90]);
+  });
+
+  it(`returns an empty list when nothing references any indicator`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [{ name: `FLD1`, conditions: [], keywords: [] }] }] }, `dds.dspf`, false);
+    expect(sandbox.getReferencedIndicators()).toEqual([]);
+  });
+});
+
+describe(`elementId`, () => {
+  it(`namespaces by record format so same-named fields in different formats don't collide`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.elementId(`FMTA`, `FLD1`)).toBe(`FMTA::FLD1`);
+    expect(sandbox.elementId(`FMTB`, `FLD1`)).toBe(`FMTB::FLD1`);
+    expect(sandbox.elementId(`FMTA`, `FLD1`)).not.toBe(sandbox.elementId(`FMTB`, `FLD1`));
+  });
+});
+
+describe(`getElement (canvas field rendering)`, () => {
+  function textOf(group: any): string {
+    const text = group.children.find((c: any) => c.type === `Text`);
+    return text.config.text;
+  }
+
+  it(`derives the alpha/numeric placeholder character straight from the DDS type, not the possibly-stale primitiveType`, () => {
+    const sandbox = loadWebui();
+
+    // primitiveType deliberately set wrong (char) while type says numeric (D) -
+    // this is exactly the state a client-side Type edit used to leave behind
+    // before the fix, since primitiveType is only ever computed server-side.
+    const numericField = {
+      name: `NUM1`, type: `D`, primitiveType: `char`, length: 5, decimals: 0,
+      displayType: `input`, value: undefined, position: { x: 1, y: 1 }, keywords: [],
+    };
+    const numericGroup = sandbox.getElement(numericField, false, `FMT`);
+    expect(textOf(numericGroup)).toBe(`33333`);
+
+    const alphaField = {
+      name: `ALP1`, type: `A`, primitiveType: `decimal`, length: 4, decimals: 0,
+      displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [],
+    };
+    const alphaGroup = sandbox.getElement(alphaField, false, `FMT`);
+    expect(textOf(alphaGroup)).toBe(`OOOO`);
+  });
+
+  it(`uses the both/input/output-specific padding character for both primitive types`, () => {
+    const sandbox = loadWebui();
+    const base = { type: `A`, length: 3, decimals: 0, value: undefined, position: { x: 1, y: 1 }, keywords: [] };
+
+    expect(textOf(sandbox.getElement({ ...base, name: `F1`, displayType: `input` }, false, `FMT`))).toBe(`III`);
+    expect(textOf(sandbox.getElement({ ...base, name: `F2`, displayType: `output` }, false, `FMT`))).toBe(`OOO`);
+    expect(textOf(sandbox.getElement({ ...base, name: `F3`, displayType: `both` }, false, `FMT`))).toBe(`BBB`);
+
+    const decBase = { type: `D`, length: 3, decimals: 0, value: undefined, position: { x: 1, y: 1 }, keywords: [] };
+    expect(textOf(sandbox.getElement({ ...decBase, name: `F4`, displayType: `input` }, false, `FMT`))).toBe(`333`);
+    expect(textOf(sandbox.getElement({ ...decBase, name: `F5`, displayType: `output` }, false, `FMT`))).toBe(`666`);
+    expect(textOf(sandbox.getElement({ ...decBase, name: `F6`, displayType: `both` }, false, `FMT`))).toBe(`999`);
+  });
+
+  it(`floors the rendered width at 1 character for a zero-length referenced field`, () => {
+    const sandbox = loadWebui();
+    const referencedField = {
+      name: `REFFLD1`, type: ``, primitiveType: undefined, length: 0, decimals: 0,
+      displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [],
+    };
+    const group = sandbox.getElement(referencedField, false, `FMT`);
+    expect(textOf(group).length).toBe(1);
+    expect(group.config.width).toBeGreaterThan(0);
+  });
+
+  it(`namespaces the canvas element id by the owning record format`, () => {
+    const sandbox = loadWebui();
+    const field = { name: `SAMENAME`, type: `A`, length: 1, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [] };
+
+    const groupA = sandbox.getElement(field, false, `FMTA`);
+    const groupB = sandbox.getElement(field, false, `FMTB`);
+
+    expect(groupA.config.id).toBe(`FMTA::SAMENAME`);
+    expect(groupB.config.id).toBe(`FMTB::SAMENAME`);
+  });
+
+  it(`only applies a keyword whose conditioning indicator is currently on`, () => {
+    const sandbox = loadWebui();
+    const panel = sandbox.createIndicatorsPanel([30]);
+    toggleIndicatorCheckbox(panel, 30, false);
+
+    // getElement applies keywords in array order (last match wins), so like
+    // real DDS authoring, the conditioned override is written after the
+    // unconditioned default - it only takes effect once its indicator is on.
+    const field = {
+      name: `F1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 },
+      keywords: [
+        { name: `COLOR`, value: `GRN`, conditions: [] },
+        { name: `COLOR`, value: `RED`, conditions: [cond(30)] },
+      ],
+    };
+
+    const offGroup = sandbox.getElement(field, false, `FMT`);
+    const offText = offGroup.children.find((c: any) => c.type === `Text`);
+    expect(offText.config.fill).toBe(`green`); // colours.GRN
+
+    toggleIndicatorCheckbox(panel, 30, true);
+    const onGroup = sandbox.getElement(field, false, `FMT`);
+    const onText = onGroup.children.find((c: any) => c.type === `Text`);
+    expect(onText.config.fill).toBe(`red`); // colours.RED - the conditioned COLOR now wins
+  });
+});
+
+describe(`addFieldsToLayer field visibility`, () => {
+  it(`only adds fields whose conditions are currently satisfied`, () => {
+    const sandbox = loadWebui();
+    const panel = sandbox.createIndicatorsPanel([80]);
+    // leave indicator 80 off
+
+    const format = {
+      name: `FMT`,
+      keywords: [],
+      fields: [
+        { name: `ALWAYS`, type: `A`, length: 1, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] },
+        { name: `ONLYIF80`, type: `A`, length: 1, decimals: 0, displayType: `output`, value: undefined, position: { x: 2, y: 1 }, keywords: [], conditions: [cond(80)] },
+      ],
+    };
+
+    const layer = new sandbox.Konva.Layer({});
+    sandbox.addFieldsToLayer(layer, format, false);
+    expect(layer.children.map((c: any) => c.config.id)).toEqual([`FMT::ALWAYS`]);
+
+    toggleIndicatorCheckbox(panel, 80, true);
+    const layer2 = new sandbox.Konva.Layer({});
+    sandbox.addFieldsToLayer(layer2, format, false);
+    expect(layer2.children.map((c: any) => c.config.id).sort()).toEqual([`FMT::ALWAYS`, `FMT::ONLYIF80`]);
+  });
+
+  it(`hidden fields never render regardless of indicators`, () => {
+    const sandbox = loadWebui();
+    const format = {
+      name: `FMT`,
+      keywords: [],
+      fields: [
+        { name: `HID`, type: `A`, length: 1, decimals: 0, displayType: `hidden`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] },
+      ],
+    };
+    const layer = new sandbox.Konva.Layer({});
+    sandbox.addFieldsToLayer(layer, format, false);
+    expect(layer.children.length).toBe(0);
+  });
+});
+
+describe(`createValuesPanel select-value corruption guard`, () => {
+  it(`omits a select's value from the update entirely when it doesn't match any option, instead of sending undefined`, () => {
+    const sandbox = loadWebui();
+
+    let lastUpdate: any;
+    const properties = [
+      { label: `Name`, value: `MYFLD`, id: `name` },
+      {
+        label: `Type`, value: `L`, id: `type`, // Date - not one of the dropdown's own options
+        options: [{ label: `Alpha`, value: `A` }, { label: `Numeric`, value: `D` }],
+      },
+    ];
+
+    const section = sandbox.createValuesPanel(`test-panel`, properties, (values: any) => { lastUpdate = values; });
+
+    const typeSelect = findByDataFieldId(section, `type`);
+    expect(typeSelect).toBeDefined();
+    expect(typeSelect!.value).toBeUndefined(); // confirms the FakeElement itself models the real "no match" behavior
+
+    typeSelect!.trigger(`change`);
+
+    expect(lastUpdate).toBeDefined();
+    expect(`type` in lastUpdate).toBe(false);
+    // The other, valid control's value should still come through normally.
+    expect(lastUpdate.name).toBe(`MYFLD`);
+  });
+
+  it(`includes a select's value normally when it does match an option`, () => {
+    const sandbox = loadWebui();
+
+    let lastUpdate: any;
+    const properties = [
+      {
+        label: `Type`, value: `A`, id: `type`,
+        options: [{ label: `Alpha`, value: `A` }, { label: `Numeric`, value: `D` }],
+      },
+    ];
+
+    const section = sandbox.createValuesPanel(`test-panel`, properties, (values: any) => { lastUpdate = values; });
+    const typeSelect = findByDataFieldId(section, `type`);
+    typeSelect!.trigger(`change`);
+
+    expect(lastUpdate.type).toBe(`A`);
+  });
+
+  it(`applies a contenteditable text field's value on blur`, () => {
+    const sandbox = loadWebui();
+
+    let lastUpdate: any;
+    const properties = [{ label: `Length`, value: 10, id: `length` }];
+    const section = sandbox.createValuesPanel(`test-panel`, properties, (values: any) => { lastUpdate = values; });
+
+    const lengthInput = findByDataFieldId(section, `length`);
+    lengthInput!.innerText = `20`;
+    lengthInput!.trigger(`blur`);
+
+    expect(lastUpdate.length).toBe(`20`);
+  });
+});
+
+describe(`updateSelectedFieldSidebar - constant fields`, () => {
+  it(`never shows a Display Type control for a constant (it can't represent "const" and corrupts the field if edited)`, () => {
+    const sandbox = loadWebui();
+
+    const constField = {
+      name: undefined, displayType: `const`, value: `Hello`, position: { x: 1, y: 1 }, keywords: [],
+    };
+    sandbox.updateSelectedFieldSidebar(constField);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    expect(findByDataFieldId(sidebar, `displayType`)).toBeUndefined();
+    // Value should still be there and editable.
+    expect(findByDataFieldId(sidebar, `value`)).toBeDefined();
+  });
+
+  it(`shows an editable Display Type control for a non-constant field`, () => {
+    const sandbox = loadWebui();
+
+    const field = {
+      name: `FLD1`, displayType: `input`, type: `A`, length: 5, decimals: 0,
+      position: { x: 1, y: 1 }, keywords: [],
+    };
+    sandbox.updateSelectedFieldSidebar(field);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    expect(findByDataFieldId(sidebar, `displayType`)).toBeDefined();
+  });
+});
