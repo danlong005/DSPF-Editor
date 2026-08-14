@@ -12,8 +12,11 @@
      A                                      TIMSEP(:)
      A            PAGEFLD        4A  O  2  2
      A                                      PAGNBR
-     A            USERFLD       10A  O 24  2
+     A            USERFLD       10A  O  3  2
      A                                      USER
+     A            F1NWFLD       11D 0I  5  6
+     A            REFFLD1        0R 0   9 40
+     A                                      REFFLD(CUSTNO)
      A          R CUSTOMER
      A            RECKEY         4A  H  1  1
      A                                  4  2'Customer #:'

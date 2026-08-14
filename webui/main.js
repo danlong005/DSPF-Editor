@@ -674,7 +674,11 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
       break;
   }
 
-  const displayLength = fieldInfo.length > 0 && labelInfo.value.length < fieldInfo.length ? fieldInfo.length : labelInfo.value.length;
+  // A field referencing another field for its definition (REF/REFFLD) has no
+  // length of its own in this source - length 0 and no value would otherwise
+  // render as an invisible, zero-width box. Show at least a 1-char placeholder
+  // so there's a visible marker that a field exists here.
+  const displayLength = Math.max(1, fieldInfo.length > 0 && labelInfo.value.length < fieldInfo.length ? fieldInfo.length : labelInfo.value.length);
   const displayValue = labelInfo.value
     .replace(new RegExp(`''`, `g`), `'`)
     .padEnd(displayLength, padString);
