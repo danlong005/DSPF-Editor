@@ -1,5 +1,5 @@
 import { expect, describe, it } from "vitest";
-import { DdsLineRange, DisplayFile, FieldInfo } from "../ui/dspf";
+import { DdsLineRange, DisplayFile, FieldInfo, GLOBAL_RECORD_NAME } from "../ui/dspf";
 import exp from "constants";
 
 describe('DisplayFile tests', () => {
@@ -135,6 +135,98 @@ describe('DisplayFile tests', () => {
     dds.parse(dspf1);
     let names = dds.formats.map(rcd => rcd.name);
     expect(new Set(names).size).toBe(names.length);
+  });
+
+  it('updateFormatHeader on the file-level (global) record', () => {
+    let dds = new DisplayFile();
+    dds.parse(dspf1);
+
+    // The global record sits at index 0, which getRangeForField/
+    // getHeaderRangeForFormat used to explicitly exclude (`> 0` guard).
+    const range = dds.getHeaderRangeForFormat(GLOBAL_RECORD_NAME);
+    expect(range?.start).toBe(0);
+    expect(range?.end).toBe(1);
+    expect(range?.endHeader).toBe(0);
+
+    const update = dds.updateFormatHeader(GLOBAL_RECORD_NAME, [
+      { name: `DSPSIZ`, value: `24 80 *DS3`, conditions: [] },
+      { name: `INDARA`, value: undefined, conditions: [] },
+    ]);
+    // No 'R _GLOBAL' line should ever be generated - it isn't a real record.
+    expect(update?.newLines.some(l => l.includes(`R ${GLOBAL_RECORD_NAME}`))).toBe(false);
+    expect(update?.range).toEqual({ start: 0, end: 0 });
+
+    const newDoc = [...dspf1];
+    newDoc.splice(update!.range!.start, (update!.range!.end - update!.range!.start) + 1, ...update!.newLines);
+
+    const reparsed = new DisplayFile();
+    reparsed.parse(newDoc);
+    const global = reparsed.formats.find(f => f.name === GLOBAL_RECORD_NAME);
+    expect(global?.keywords).toEqual([
+      { name: `DSPSIZ`, value: `24 80 *DS3`, conditions: [] },
+      { name: `INDARA`, conditions: [] },
+    ]);
+    // Every other format should be completely undisturbed.
+    expect(reparsed.formats.map(f => f.name)).toEqual([GLOBAL_RECORD_NAME, `HEAD`, `FMT1`, `GLOBAL`, `FORM1`]);
+    expect(reparsed.formats.find(f => f.name === `HEAD`)?.fields[0].value).toBe(`vscode-displayfile`);
+  });
+
+  it('updateFormatHeader inserts when there are no existing file-level keywords', () => {
+    const lines = [
+      `     A          R HEAD                                                          `,
+      `     A                                  1  1'Hi'                                `,
+    ];
+
+    let dds = new DisplayFile();
+    dds.parse(lines);
+
+    const range = dds.getHeaderRangeForFormat(GLOBAL_RECORD_NAME);
+    expect(range?.start).toBe(0);
+    expect(range?.endHeader).toBe(-1);
+
+    const update = dds.updateFormatHeader(GLOBAL_RECORD_NAME, [
+      { name: `DSPSIZ`, value: `24 80 *DS3`, conditions: [] },
+    ]);
+    // end < start signals "insert before start", not "replace start..end" -
+    // there's no existing file-level content to anchor a replace on.
+    expect(update?.range).toEqual({ start: 0, end: -1 });
+
+    const newDoc = [...lines];
+    newDoc.splice(update!.range!.start, 0, ...update!.newLines);
+
+    const reparsed = new DisplayFile();
+    reparsed.parse(newDoc);
+    expect(reparsed.formats.find(f => f.name === GLOBAL_RECORD_NAME)?.keywords).toEqual([
+      { name: `DSPSIZ`, value: `24 80 *DS3`, conditions: [] },
+    ]);
+    expect(reparsed.formats.find(f => f.name === `HEAD`)?.fields[0].value).toBe(`Hi`);
+  });
+
+  it('updateFormatHeader on a record with no fields and no keywords', () => {
+    const lines = [
+      `     A          R EMPTYFMT                                                      `,
+      `     A          R NEXTFMT                                                       `,
+      `     A                                  1  1'x'                                 `,
+    ];
+
+    let dds = new DisplayFile();
+    dds.parse(lines);
+
+    const update = dds.updateFormatHeader(`EMPTYFMT`, [
+      { name: `TEXT`, value: `'hi'`, conditions: [] },
+    ]);
+    expect(update?.range).toEqual({ start: 0, end: 0 });
+
+    const newDoc = [...lines];
+    newDoc.splice(update!.range!.start, (update!.range!.end - update!.range!.start) + 1, ...update!.newLines);
+
+    const reparsed = new DisplayFile();
+    reparsed.parse(newDoc);
+    expect(reparsed.formats.find(f => f.name === `EMPTYFMT`)?.keywords).toEqual([
+      { name: `TEXT`, value: `'hi'`, conditions: [] },
+    ]);
+    // NEXTFMT and its field must survive untouched.
+    expect(reparsed.formats.find(f => f.name === `NEXTFMT`)?.fields[0].value).toBe(`x`);
   });
 
 });

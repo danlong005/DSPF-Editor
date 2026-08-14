@@ -18,7 +18,7 @@
       {
         "command": "vscode-ibmi-renderer.launchRenderer",
         "title": "Launch Renderer",
-        "icon": "$(search)"
+        "icon": "$(open-preview)"
       }
     ],
     "menus": {
@@ -29,7 +29,17 @@
           "group": "navigation"
         }
       ]
-    }
+    },
+    "customEditors": [
+      {
+        "viewType": "vscode-ibmi-renderer.dspfEditor",
+        "displayName": "IBM i Display File Renderer",
+        "selector": [
+          { "filenamePattern": "*.{dspf,DSPF}" }
+        ],
+        "priority": "default"
+      }
+    ]
   },
   "scripts": {
     "vscode:prepublish": "npm run package",

@@ -2,7 +2,7 @@
 export interface DdsLineRange { start: number, endHeader?: number, end: number };
 export interface DdsUpdate { newLines: string[], range?: DdsLineRange };
 
-const GLOBAL_RECORD_NAME = `_GLOBAL`;
+export const GLOBAL_RECORD_NAME = `_GLOBAL`;
 
 export class DisplayFile {
   public formats: RecordInfo[] = [];
@@ -17,6 +17,13 @@ export class DisplayFile {
   */
   parse(lines: string[]) {
     let textCounter = 0;
+
+    // The initial (file-level/global) record never gets a range.start from
+    // an 'R' line the way every other record does - its content starts at
+    // the very top of the file.
+    if (this.currentRecord) {
+      this.currentRecord.range.start = 0;
+    }
 
     let conditionals: string, name: string, len: string, type: string, dec: string, inout: string, x: string, y: string, keywords: string;
 
@@ -425,7 +432,7 @@ export class DisplayFile {
   public getRangeForField(recordFormat: string, fieldName: string): DdsLineRange|undefined {
     let range: DdsLineRange|undefined = undefined;
     const currentFormatI = this.formats.findIndex(format => format.name === recordFormat);
-    if (currentFormatI > 0) {
+    if (currentFormatI >= 0) {
       const currentFormat = this.formats[currentFormatI];
       const index = currentFormat.fields.findIndex(field => field.name === fieldName);
       
@@ -487,16 +494,20 @@ export class DisplayFile {
   public getHeaderRangeForFormat(recordFormat: string): DdsLineRange|undefined {
     let range: DdsLineRange|undefined = undefined;
     const currentFormatI = this.formats.findIndex(format => format.name === recordFormat);
-    if (currentFormatI > 0) {
+    if (currentFormatI >= 0) {
       range = { start: this.formats[currentFormatI].range.start, end: this.formats[currentFormatI].range.end };
 
       const currentFormat = this.formats[currentFormatI];
       const firstField = currentFormat.fields[0];
 
       if (firstField) {
-        range.endHeader = firstField.startRange-1;
+        range.endHeader = firstField.startRange - 1;
       } else {
-        range.endHeader = range.start;
+        // No fields at all, so the header (keywords only) runs through the
+        // record's whole span. range.end is the index one past this record's
+        // content (the next 'R' line, or EOF), so back up one to land on the
+        // record's own last line.
+        range.endHeader = range.end - 1;
       }
     }
 
@@ -505,13 +516,18 @@ export class DisplayFile {
 
   // TODO: test cases
   public updateFormatHeader(originalFormatName: string, keywords: Keyword[]): DdsUpdate|undefined {
-    const newLines = DisplayFile.getHeaderLinesForFormat(originalFormatName, keywords);
+    // The file-level/global record has no 'R' line of its own to regenerate -
+    // its keywords are just whatever comes before the first real record.
+    const isFileLevel = originalFormatName === GLOBAL_RECORD_NAME;
+    const newLines = DisplayFile.getHeaderLinesForFormat(isFileLevel ? `` : originalFormatName, keywords);
     let range = this.getHeaderRangeForFormat(originalFormatName);
 
     if (range) {
       range = {
         start: range.start,
-        end: range.endHeader || range.end,
+        // endHeader can legitimately be 0, which `||` would treat as falsy
+        // and wrongly fall through to range.end.
+        end: range.endHeader ?? range.end,
       };
     }
 
