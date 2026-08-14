@@ -44,5 +44,5 @@ jobs:
           fi
           gh release create "$TAG" *.vsix \
             --repo "$GITHUB_REPOSITORY" \
-            --title "$TAG" \
+            --title "DSPF Editor $TAG" \
             --generate-notes
