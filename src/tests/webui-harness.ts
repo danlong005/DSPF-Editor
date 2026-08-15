@@ -170,7 +170,7 @@ export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
     `recordFormatSidebar`, `fieldInfoSidebar`, `keywordEditorArea`,
     `recordFormatSelector`, `container`, `recordFormatTabs`,
     `newFormatButton`, `newFormatForm`, `newFormatName`, `newFormatConfirm`,
-    `deleteFormatButton`, `formatToolbarRow`,
+    `deleteFormatButton`, `formatToolbarRow`, `selectedFormatRow`,
   ];
   for (const id of fixedIds) {
     const el = new FakeElement(`div`);

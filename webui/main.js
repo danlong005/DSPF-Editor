@@ -206,28 +206,36 @@ function loadDDS(newDoc, type, withRerender = true) {
   activeDocument = newDoc;
   activeDocumentType = type;
 
-  if (withRerender) {
-    const validFormats = activeDocument.formats.filter(format => format.name !== GLOBAL_RECORD_FORMAT);
-    const validNames = validFormats.map(format => format.name);
+  if (!withRerender) { return; }
 
-    // Never leave the selector on a blank/stale format - fall back to the
-    // first one whenever there isn't already a valid selection (first load,
-    // or the previously-selected format got renamed/deleted).
-    const chosenFormat = (lastSelectedFormat && validNames.includes(lastSelectedFormat))
-      ? lastSelectedFormat
-      : validNames[0];
+  const validNames = activeDocument.formats
+    .filter(format => format.name !== GLOBAL_RECORD_FORMAT)
+    .map(format => format.name);
 
-    setTabs(validNames, chosenFormat);
+  if (isPreviewMode) {
+    // No dropdown/"selected format" here - just drop any composed selections
+    // for formats that no longer exist, then re-render whatever's left checked.
+    composedFormats.forEach(name => {
+      if (!validNames.includes(name)) { composedFormats.delete(name); }
+    });
+    renderComposedPreview();
+    return;
+  }
 
-    if (chosenFormat) {
-      setWindowForFormat(chosenFormat);
-    }
+  // Never leave the selector on a blank/stale format - fall back to the
+  // first one whenever there isn't already a valid selection (first load,
+  // or the previously-selected format got renamed/deleted).
+  const chosenFormat = (lastSelectedFormat && validNames.includes(lastSelectedFormat))
+    ? lastSelectedFormat
+    : validNames[0];
+
+  setTabs(validNames, chosenFormat);
+
+  if (chosenFormat) {
+    setWindowForFormat(chosenFormat);
   }
 }
 
-/**
- * @param {string} chosenFormat 
- */
 /**
  * Blanks the canvas and both side panels - used whenever there's nothing
  * sensible to render (an unrecognized format name) or something unexpected
@@ -262,6 +270,70 @@ function setWindowForFormat(chosenFormat) {
     renderFormat(chosenFormat, selectedFormat);
   } catch (error) {
     console.warn(`Failed to render format "${chosenFormat}":`, error);
+    clearRenderedScreen();
+  }
+}
+
+/**
+ * The Preview view's render entry point - unlike Design's setWindowForFormat,
+ * there's no single "selected" format (no dropdown in this view at all): the
+ * canvas just shows every format currently checked in the Composed Formats
+ * tab, layered together, all read-only. Called on load and whenever the
+ * checked formats or active indicators change.
+ */
+function renderComposedPreview() {
+  try {
+    let renderWidth = 80;
+    let renderHeight = 24;
+
+    const globalFormat = activeDocument.formats.find(format => format.name === GLOBAL_RECORD_FORMAT);
+    if (globalFormat) {
+      const displaySize = globalFormat.keywords.find(keyword => keyword.name === `DSPSIZ`);
+      const sizes = displaySize ? parseDspSizes(displaySize.value) : [];
+
+      updateDspSizeToggle(sizes);
+
+      const chosenSize = sizes.length > 1
+        ? (sizes.find(s => s.qualifier === dspSizeQualifier) || sizes[0])
+        : sizes[0];
+
+      if (chosenSize) {
+        renderWidth = chosenSize.width;
+        renderHeight = chosenSize.height;
+      }
+    }
+
+    let width = renderWidth * pxwPerChar;
+    let height = renderHeight * pxhPerLine;
+
+    if (existingStage) { existingStage.destroy(); }
+
+    existingStage = new Konva.Stage({ container: `container`, width, height });
+    const bg = new Konva.Rect({ x: 0, y: 0, width, height, fill: colours.BLK });
+    let layer = new Konva.Layer({ id: `preview` });
+    layer.add(bg);
+
+    const formatsToRender = Array.from(composedFormats)
+      .map(name => activeDocument.formats.find(format => format.name === name))
+      .filter(Boolean);
+
+    // Windows always draw on top of everything else - Array#sort is stable,
+    // so this only reorders windows-vs-non-windows and otherwise preserves
+    // the order the formats were checked in.
+    formatsToRender.sort((a, b) => Number(a.isWindow) - Number(b.isWindow));
+
+    // Routing through renderSelectedFormat (not addFieldsToLayer directly)
+    // means a composed format that's itself a window still gets its
+    // border/background drawn.
+    formatsToRender.forEach(format => {
+      renderSelectedFormat(layer, format, true);
+    });
+
+    existingStage.add(layer);
+    updatePreviewSidebar();
+    setActiveField();
+  } catch (error) {
+    console.warn(`Failed to render preview:`, error);
     clearRenderedScreen();
   }
 }
@@ -327,40 +399,15 @@ function renderFormat(chosenFormat, selectedFormat) {
 
   layer.add(bg);
 
-  // Editing always targets whichever format is focused here, regardless of
-  // what else gets layered on top below. In preview mode nothing is
-  // editable at all, including the focused format itself.
+  // This is the Design view's render path - always exactly one format,
+  // fully editable. Composing several formats together read-only is the
+  // Preview view's job entirely now (see renderComposedPreview).
   lastSelectedFormat = chosenFormat;
-
-  const formatsToRender = [{ format: selectedFormat, displayOnly: isPreviewMode }];
-
-  // Layer any other checked formats on top, read-only, but only in the
-  // Preview view - Design always shows just the focused format.
-  if (isPreviewMode) {
-    composedFormats.forEach(name => {
-      if (name === chosenFormat) { return; }
-
-      const composedFormat = activeDocument.formats.find(currentFormat => currentFormat.name === name);
-      if (composedFormat) {
-        formatsToRender.push({ format: composedFormat, displayOnly: true });
-      }
-    });
-  }
-
-  // Windows always draw on top of everything else, whether they're the
-  // focused format or a composed one - Array#sort is stable, so this only
-  // reorders windows-vs-non-windows and otherwise preserves the order above.
-  formatsToRender.sort((a, b) => Number(a.format.isWindow) - Number(b.format.isWindow));
-
-  // Routing through renderSelectedFormat (not addFieldsToLayer directly) means
-  // a composed format that's itself a window still gets its border/background drawn.
-  formatsToRender.forEach(({ format, displayOnly }) => {
-    renderSelectedFormat(layer, format, displayOnly);
-  });
+  renderSelectedFormat(layer, selectedFormat, false);
 
   existingStage.add(layer);
 
-  updateRecordFormatSidebar(selectedFormat);
+  updateRecordFormatSidebar();
   setActiveField();
 }
 
@@ -990,7 +1037,9 @@ function updateDspSizeToggle(sizes) {
 
     radio.addEventListener(`change`, () => {
       dspSizeQualifier = size.qualifier;
-      if (lastSelectedFormat) {
+      if (isPreviewMode) {
+        renderComposedPreview();
+      } else if (lastSelectedFormat) {
         setWindowForFormat(lastSelectedFormat);
       }
     });
@@ -1006,11 +1055,6 @@ function updateDspSizeToggle(sizes) {
  */
 function setTabs(recordFormats, setActiveTab) {
   const container = document.getElementById(`recordFormatSelector`);
-
-  // Formats that no longer exist (e.g. renamed/deleted) shouldn't stay composed.
-  composedFormats.forEach(name => {
-    if (!recordFormats.includes(name)) { composedFormats.delete(name); }
-  });
 
   container.innerHTML = ``;
 
@@ -1094,26 +1138,14 @@ function setActiveField(konvaElement, fieldInfo) {
 }
 
 /**
- * @param {RecordInfo} recordInfo
- * @param {RecordInfo} [globalInfo]
+ * The Design view's left sidebar - just Indicators. Composing other formats
+ * together is the Preview view's job now (see updatePreviewSidebar).
  */
-function updateRecordFormatSidebar(recordInfo) {
+function updateRecordFormatSidebar() {
   const sidebar = document.getElementById(`recordFormatSidebar`);
 
   /** @type {Tab[]} */
   let tabs = [];
-
-  // Composing other formats on top only makes sense - and is only offered -
-  // in the read-only Preview view. The Design view never shows this tab.
-  if (isPreviewMode) {
-    const otherFormats = activeDocument.formats
-      .filter(format => format.name !== GLOBAL_RECORD_FORMAT && format.name !== recordInfo.name)
-      .map(format => format.name);
-
-    if (otherFormats.length > 0) {
-      tabs.push({ title: `Composed Formats`, html: createComposedFormatsPanel(otherFormats) });
-    }
-  }
 
   const referencedIndicators = getReferencedIndicators();
   if (referencedIndicators.length > 0) {
@@ -1123,6 +1155,38 @@ function updateRecordFormatSidebar(recordInfo) {
   if (tabs.length > 0) {
     // Clamp in case the previously-selected tab no longer exists (e.g. the
     // Indicators tab disappeared because nothing references an indicator anymore).
+    const selectedIndex = Math.min(recordFormatSidebarTabIndex, tabs.length - 1);
+    renderTabs(sidebar, tabs, selectedIndex, (index) => { recordFormatSidebarTabIndex = index; });
+  } else {
+    sidebar.innerHTML = ``;
+  }
+}
+
+/**
+ * The Preview view's left sidebar - Composed Formats lists every real
+ * format (there's no "current" one to exclude, unlike Design), plus
+ * Indicators when any are referenced.
+ */
+function updatePreviewSidebar() {
+  const sidebar = document.getElementById(`recordFormatSidebar`);
+
+  /** @type {Tab[]} */
+  let tabs = [];
+
+  const allFormats = activeDocument.formats
+    .filter(format => format.name !== GLOBAL_RECORD_FORMAT)
+    .map(format => format.name);
+
+  if (allFormats.length > 0) {
+    tabs.push({ title: `Composed Formats`, html: createComposedFormatsPanel(allFormats) });
+  }
+
+  const referencedIndicators = getReferencedIndicators();
+  if (referencedIndicators.length > 0) {
+    tabs.push({ title: `Indicators`, html: createIndicatorsPanel(referencedIndicators) });
+  }
+
+  if (tabs.length > 0) {
     const selectedIndex = Math.min(recordFormatSidebarTabIndex, tabs.length - 1);
     renderTabs(sidebar, tabs, selectedIndex, (index) => { recordFormatSidebarTabIndex = index; });
   } else {
@@ -1153,7 +1217,11 @@ function createIndicatorsPanel(indicatorNumbers) {
         activeIndicators.delete(indicator);
       }
 
-      if (lastSelectedFormat) {
+      // This panel is shared by both views (Design conditions the one format
+      // it's editing; Preview re-renders whatever's currently composed).
+      if (isPreviewMode) {
+        renderComposedPreview();
+      } else if (lastSelectedFormat) {
         setWindowForFormat(lastSelectedFormat);
       }
     });
@@ -1165,7 +1233,9 @@ function createIndicatorsPanel(indicatorNumbers) {
 }
 
 /**
- * @param {string[]} formatNames every format other than the currently focused one
+ * Preview-only: every real record format, to check on/off for composing
+ * together. There's no "currently focused" one to exclude here.
+ * @param {string[]} formatNames
  */
 function createComposedFormatsPanel(formatNames) {
   const section = document.createElement(`div`);
@@ -1187,9 +1257,7 @@ function createComposedFormatsPanel(formatNames) {
         composedFormats.delete(name);
       }
 
-      if (lastSelectedFormat) {
-        setWindowForFormat(lastSelectedFormat);
-      }
+      renderComposedPreview();
     });
 
     section.appendChild(checkbox);
@@ -1205,11 +1273,13 @@ function clearFieldInfo() {
   const tabs = [];
 
   if (!isPreviewMode) {
-    // Nothing is editable in the Preview view - there's no field to add these to.
+    // Nothing is editable in the Preview view, and there's no single
+    // focused format there either (no dropdown - see renderComposedPreview),
+    // so neither of these has anything coherent to show.
     tabs.push({ title: `Add Field`, html: createAddFieldPanel() });
+    tabs.push(createFormatKeywordsTab());
   }
 
-  tabs.push(createFormatKeywordsTab());
   tabs.push(createFileKeywordsTab());
 
   renderFieldTabs(sidebar, tabs);
@@ -1608,10 +1678,7 @@ function isValidFormatName(name) {
  */
 function initNewFormatUi() {
   // Nothing is editable in the Preview view - there's no reason to offer this.
-  if (isPreviewMode) {
-    document.getElementById(`formatToolbarRow`).style.display = `none`;
-    return;
-  }
+  if (isPreviewMode) { return; }
 
   const button = document.getElementById(`newFormatButton`);
   const form = document.getElementById(`newFormatForm`);
@@ -1682,7 +1749,21 @@ function initDeleteFormatUi() {
   });
 }
 
+/**
+ * Hides the top-bar chrome that only makes sense when something's editable:
+ * New Format/Delete Format, and the Selected Format dropdown (Preview has
+ * no "selected" format at all - see renderComposedPreview). The DSPSIZ
+ * DS3/DS4 toggle stays, since it's relevant to both views.
+ */
+function hidePreviewOnlyChrome() {
+  document.getElementById(`formatToolbarRow`).style.display = `none`;
+  document.getElementById(`selectedFormatRow`).style.display = `none`;
+}
+
 window.addEventListener(`DOMContentLoaded`, () => {
+  if (isPreviewMode) {
+    hidePreviewOnlyChrome();
+  }
   initNewFormatUi();
   initDeleteFormatUi();
 });

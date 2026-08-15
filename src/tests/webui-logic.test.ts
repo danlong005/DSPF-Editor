@@ -10,6 +10,14 @@ function toggleIndicatorCheckbox(panel: FakeElement, indicator: number, checked:
   checkbox.trigger(`change`);
 }
 
+/** Finds and checks/unchecks one of createComposedFormatsPanel's checkboxes by label, firing its change handler. */
+function toggleComposedFormatCheckbox(panel: FakeElement, formatName: string, checked: boolean) {
+  const checkbox = panel.children.find(c => c.attributes.label === formatName);
+  if (!checkbox) { throw new Error(`No checkbox for format ${formatName}`); }
+  checkbox.attributes.checked = checked ? `true` : `false`;
+  checkbox.trigger(`change`);
+}
+
 function cond(indicator: number, negate = false) {
   return { indicator, negate };
 }
@@ -556,20 +564,18 @@ describe(`setWindowForFormat error trapping`, () => {
           name: `FMT1`,
           keywords: [],
           fields: [
-            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] },
+            // Referenced indicator so the sidebar has an "Indicators" section
+            // to render - proof the successful-render path was exercised
+            // before the error path clears it back out.
+            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [{ indicator: 50, negate: false }] },
           ],
         },
-        // A second format so the sidebar actually has a "Composed Formats"
-        // section to render - proof the successful-render path was exercised
-        // before the error path clears it back out. (Only shown in Preview
-        // mode - see loadWebui(`preview`) below.)
-        { name: `FMT2`, keywords: [], fields: [] },
       ],
     };
   }
 
   it(`clears the screen instead of throwing when the typed format name doesn't exist yet`, () => {
-    const sandbox = loadWebui(`preview`);
+    const sandbox = loadWebui();
     sandbox.loadDDS(basicModel(), `dds.dspf`, false);
 
     // Render something real first, so there's actually content to clear.
@@ -585,7 +591,7 @@ describe(`setWindowForFormat error trapping`, () => {
   });
 
   it(`clears the screen instead of throwing when rendering fails unexpectedly for any other reason`, () => {
-    const sandbox = loadWebui(`preview`);
+    const sandbox = loadWebui();
     sandbox.loadDDS(basicModel(), `dds.dspf`, false);
     sandbox.setWindowForFormat(`FMT1`);
     expect(sandbox.document.getElementById(`recordFormatSidebar`).children.length).toBeGreaterThan(0);
@@ -671,7 +677,7 @@ describe(`setTabs (record format selector) - Delete Format button state`, () => 
   });
 });
 
-describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
+describe(`updatePreviewSidebar - Composed Formats/Indicators tabs`, () => {
   function modelWithComposedFormatsAndIndicators() {
     return {
       formats: [
@@ -682,7 +688,6 @@ describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
             { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [{ indicator: 50, negate: false }] },
           ],
         },
-        // A second format so the Composed Formats tab has something to list.
         { name: `FMT2`, keywords: [], fields: [] },
       ],
     };
@@ -690,8 +695,7 @@ describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
 
   it(`renders both as tabs, not accordions, defaulting to the first`, () => {
     const sandbox = loadWebui(`preview`);
-    sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, false);
-    sandbox.setWindowForFormat(`FMT1`);
+    sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, true);
 
     const sidebar = sandbox.document.getElementById(`recordFormatSidebar`);
     const tabsElement = sidebar.children.find((el: FakeElement) => el.tagName === `VSCODE-TABS`);
@@ -706,8 +710,7 @@ describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
 
   it(`keeps the previously selected tab across a re-render instead of resetting to the first tab`, () => {
     const sandbox = loadWebui(`preview`);
-    sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, false);
-    sandbox.setWindowForFormat(`FMT1`);
+    sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, true);
 
     const sidebar = sandbox.document.getElementById(`recordFormatSidebar`);
     const findTabs = () => sidebar.children.find((el: FakeElement) => el.tagName === `VSCODE-TABS`);
@@ -718,7 +721,7 @@ describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
     // Anything that re-renders this sidebar (e.g. toggling a checkbox inside
     // it) should land back on the tab the user was actually looking at,
     // rather than snapping back to the first one.
-    sandbox.setWindowForFormat(`FMT1`);
+    sandbox.renderComposedPreview();
 
     expect(findTabs().getAttribute(`selected-index`)).toBe(`1`);
   });
@@ -758,8 +761,9 @@ describe(`Design vs Preview mode`, () => {
 
   it(`shows the Composed Formats tab only in the Preview view`, () => {
     const sandbox = loadWebui(`preview`);
-    sandbox.loadDDS(twoFormatModel(), `dds.dspf`, false);
-    sandbox.setWindowForFormat(`FMT1`);
+    // Preview has no dropdown/setWindowForFormat - loading with rerender is
+    // what drives its render path (renderComposedPreview).
+    sandbox.loadDDS(twoFormatModel(), `dds.dspf`, true);
 
     expect(tabHeaders(sandbox, `recordFormatSidebar`)).toEqual([`Composed Formats`]);
   });
@@ -790,5 +794,66 @@ describe(`Design vs Preview mode`, () => {
     const previewPanel = preview.createFormatKeywordsTab().html;
     // Read-only: no "New Keyword" button, and its tree rows get no edit/delete actions.
     expect(previewPanel.children.length).toBe(1);
+  });
+});
+
+describe(`renderComposedPreview`, () => {
+  function twoRealFormatsModel() {
+    return {
+      formats: [
+        {
+          name: `HEADER`,
+          keywords: [],
+          fields: [{ name: `H1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] }],
+        },
+        {
+          name: `FOOTER`,
+          keywords: [],
+          fields: [{ name: `F1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 2 }, keywords: [], conditions: [] }],
+        },
+      ],
+    };
+  }
+
+  it(`renders every currently-checked format together, with no single "selected" one required`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS(twoRealFormatsModel(), `dds.dspf`, false);
+
+    // Capture the layer renderComposedPreview builds, so its rendered
+    // content can be inspected after the fact.
+    let capturedLayer: any;
+    const RealLayer = sandbox.Konva.Layer;
+    sandbox.Konva.Layer = class extends RealLayer {
+      constructor(c: any) { super(c); capturedLayer = this; }
+    };
+
+    // Check both formats via the same checkbox path the UI uses.
+    const panel = sandbox.createComposedFormatsPanel([`HEADER`, `FOOTER`]);
+    toggleComposedFormatCheckbox(panel, `HEADER`, true);
+    toggleComposedFormatCheckbox(panel, `FOOTER`, true);
+
+    const ids = capturedLayer.children.map((c: any) => c.config.id);
+    expect(ids).toContain(`HEADER::H1`);
+    expect(ids).toContain(`FOOTER::F1`);
+  });
+
+  it(`stops rendering a format once it's unchecked`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS(twoRealFormatsModel(), `dds.dspf`, false);
+
+    let capturedLayer: any;
+    const RealLayer = sandbox.Konva.Layer;
+    sandbox.Konva.Layer = class extends RealLayer {
+      constructor(c: any) { super(c); capturedLayer = this; }
+    };
+
+    const panel = sandbox.createComposedFormatsPanel([`HEADER`, `FOOTER`]);
+    toggleComposedFormatCheckbox(panel, `HEADER`, true);
+    toggleComposedFormatCheckbox(panel, `FOOTER`, true);
+    toggleComposedFormatCheckbox(panel, `HEADER`, false);
+
+    const ids = capturedLayer.children.map((c: any) => c.config.id);
+    expect(ids).not.toContain(`HEADER::H1`);
+    expect(ids).toContain(`FOOTER::F1`);
   });
 });

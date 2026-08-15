@@ -1,6 +1,6 @@
 {
   "name": "vscode-ibmi-renderer",
-  "displayName": "vscode-ibmi-renderer",
+  "displayName": "DSPF Editor",
   "description": "IBM i Renderer 2",
   "version": "0.0.8",
   "repository": {
