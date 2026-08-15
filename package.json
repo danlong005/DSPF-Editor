@@ -25,8 +25,13 @@
     "commands": [
       {
         "command": "vscode-ibmi-renderer.launchRenderer",
-        "title": "Launch Renderer",
-        "icon": "$(open-preview)"
+        "title": "Open Design View",
+        "icon": "$(edit)"
+      },
+      {
+        "command": "vscode-ibmi-renderer.launchPreview",
+        "title": "Open Preview View",
+        "icon": "$(eye)"
       }
     ],
     "menus": {
@@ -35,17 +40,30 @@
           "command": "vscode-ibmi-renderer.launchRenderer",
           "when": "editorLangId == dds.dspf",
           "group": "navigation"
+        },
+        {
+          "command": "vscode-ibmi-renderer.launchPreview",
+          "when": "editorLangId == dds.dspf",
+          "group": "navigation"
         }
       ]
     },
     "customEditors": [
       {
         "viewType": "vscode-ibmi-renderer.dspfEditor",
-        "displayName": "IBM i Display File Renderer",
+        "displayName": "Design",
         "selector": [
           { "filenamePattern": "*.{dspf,DSPF}" }
         ],
         "priority": "default"
+      },
+      {
+        "viewType": "vscode-ibmi-renderer.dspfPreview",
+        "displayName": "Preview",
+        "selector": [
+          { "filenamePattern": "*.{dspf,DSPF}" }
+        ],
+        "priority": "option"
       }
     ]
   },

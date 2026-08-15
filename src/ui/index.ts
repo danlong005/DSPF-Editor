@@ -3,6 +3,9 @@ import { Uri, Webview, WebviewPanel, ExtensionContext, workspace, TextDocument, 
 import { DisplayFile, FieldInfo, Keyword } from "./dspf";
 
 export const DSPF_VIEW_TYPE = `vscode-ibmi-renderer.dspfEditor`;
+export const PREVIEW_VIEW_TYPE = `vscode-ibmi-renderer.dspfPreview`;
+
+export type RendererMode = `design` | `preview`;
 
 export class RendererWebview {
   private dds: DisplayFile | undefined;
@@ -15,7 +18,8 @@ export class RendererWebview {
   constructor(
     private readonly context: ExtensionContext,
     private readonly document: TextDocument,
-    private readonly view: WebviewPanel
+    private readonly view: WebviewPanel,
+    private readonly mode: RendererMode
   ) {
     view.webview.options = {
       enableScripts: true,
@@ -235,6 +239,7 @@ export class RendererWebview {
       '{styles}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `styles.css`)),
       '{codicon}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `scripts`, `codicon.css`)),
       '{konva}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `scripts`, `konva.min.js`)),
+      '{mode}': this.mode,
     };
 
     // Replace all variables in the content

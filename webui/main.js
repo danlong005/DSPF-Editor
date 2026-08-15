@@ -82,6 +82,13 @@ const GLOBAL_RECORD_FORMAT = `_GLOBAL`;
 
 const vscode = acquireVsCodeApi();
 
+// Design and Preview are two separate registered custom editors for the same
+// file (see package.json's customEditors / src/extension.ts) sharing this
+// same webview bundle - baked into the served HTML per-panel (index.html's
+// inline `window.__mode__` script, set from RendererWebview's `mode`), since
+// a panel is one or the other for its whole lifetime, never both.
+const isPreviewMode = (typeof window !== `undefined` && window.__mode__) === `preview`;
+
 const FONT_SIZE = 14;
 const FONT_FAMILY = `Consolas, "Liberation Mono", Menlo, Courier, monospace`;
 
@@ -136,14 +143,9 @@ let lastSelectedFormat = undefined;
 
 // Other formats to render layered on top of lastSelectedFormat, previewing how
 // the screen looks when an RPG program WRITEs several formats without clearing
-// between them. Only used in preview mode.
+// between them. Only offered/rendered in the Preview view (isPreviewMode).
 /** @type {Set<string>} */
 let composedFormats = new Set();
-
-// Edit mode (default) shows only the focused format, fully interactive - like
-// RDi's "Design Records". Preview mode shows the focused format plus any
-// composed formats, entirely read-only - like RDi's "Preview" page.
-let previewMode = false;
 
 // Which DSPSIZ size is currently selected for rendering, when a file defines
 // more than one (e.g. *DS3 and *DS4 together). Only meaningful/shown when
@@ -330,11 +332,11 @@ function renderFormat(chosenFormat, selectedFormat) {
   // editable at all, including the focused format itself.
   lastSelectedFormat = chosenFormat;
 
-  const formatsToRender = [{ format: selectedFormat, displayOnly: previewMode }];
+  const formatsToRender = [{ format: selectedFormat, displayOnly: isPreviewMode }];
 
-  // Layer any other checked formats on top, read-only, but only in preview
-  // mode - edit mode always shows just the focused format.
-  if (previewMode) {
+  // Layer any other checked formats on top, read-only, but only in the
+  // Preview view - Design always shows just the focused format.
+  if (isPreviewMode) {
     composedFormats.forEach(name => {
       if (name === chosenFormat) { return; }
 
@@ -1101,15 +1103,16 @@ function updateRecordFormatSidebar(recordInfo) {
   /** @type {Tab[]} */
   let tabs = [];
 
-  // Always shown, not just in preview mode - selections here are simply
-  // ignored (see setWindowForFormat) until preview mode is on, rather than
-  // the control itself disappearing.
-  const otherFormats = activeDocument.formats
-    .filter(format => format.name !== GLOBAL_RECORD_FORMAT && format.name !== recordInfo.name)
-    .map(format => format.name);
+  // Composing other formats on top only makes sense - and is only offered -
+  // in the read-only Preview view. The Design view never shows this tab.
+  if (isPreviewMode) {
+    const otherFormats = activeDocument.formats
+      .filter(format => format.name !== GLOBAL_RECORD_FORMAT && format.name !== recordInfo.name)
+      .map(format => format.name);
 
-  if (otherFormats.length > 0) {
-    tabs.push({ title: `Composed Formats`, html: createComposedFormatsPanel(otherFormats) });
+    if (otherFormats.length > 0) {
+      tabs.push({ title: `Composed Formats`, html: createComposedFormatsPanel(otherFormats) });
+    }
   }
 
   const referencedIndicators = getReferencedIndicators();
@@ -1125,22 +1128,6 @@ function updateRecordFormatSidebar(recordInfo) {
   } else {
     sidebar.innerHTML = ``;
   }
-
-  const modeToggle = document.createElement(`vscode-checkbox`);
-  modeToggle.setAttribute(`label`, `Preview mode`);
-  modeToggle.setAttribute(`title`, `Show a read-only preview of this format together with any composed formats and indicators, instead of editing it directly.`);
-  modeToggle.style.display = `block`;
-  modeToggle.style.margin = `0.5em 1em`;
-  if (previewMode) {
-    modeToggle.setAttribute(`checked`, `true`);
-  }
-  modeToggle.addEventListener(`change`, () => {
-    previewMode = modeToggle.checked;
-    if (lastSelectedFormat) {
-      setWindowForFormat(lastSelectedFormat);
-    }
-  });
-  sidebar.insertBefore(modeToggle, sidebar.firstChild);
 }
 
 /**
@@ -1217,8 +1204,8 @@ function clearFieldInfo() {
   /** @type {{title: string, html: string|Element}[]} */
   const tabs = [];
 
-  if (!previewMode) {
-    // Nothing is editable in preview mode - there's no field to add these to.
+  if (!isPreviewMode) {
+    // Nothing is editable in the Preview view - there's no field to add these to.
     tabs.push({ title: `Add Field`, html: createAddFieldPanel() });
   }
 
@@ -1356,7 +1343,7 @@ function createFormatKeywordsTab() {
     : undefined;
 
   const html = currentFormat
-    ? createKeywordPanel(`keywords-${currentFormat.name}`, currentFormat.keywords, previewMode ? undefined : (keywords) => {
+    ? createKeywordPanel(`keywords-${currentFormat.name}`, currentFormat.keywords, isPreviewMode ? undefined : (keywords) => {
       sendFormatHeaderUpdate(currentFormat.name, keywords);
     })
     : document.createElement(`div`);
@@ -1377,7 +1364,7 @@ function createFileKeywordsTab() {
     : undefined;
 
   const html = globalFormat
-    ? createKeywordPanel(`keywords-${globalFormat.name}`, globalFormat.keywords, previewMode ? undefined : (keywords) => {
+    ? createKeywordPanel(`keywords-${globalFormat.name}`, globalFormat.keywords, isPreviewMode ? undefined : (keywords) => {
       sendFormatHeaderUpdate(globalFormat.name, keywords);
     })
     : document.createElement(`div`);
@@ -1620,6 +1607,12 @@ function isValidFormatName(name) {
  * the record format selector), so this only needs to run once.
  */
 function initNewFormatUi() {
+  // Nothing is editable in the Preview view - there's no reason to offer this.
+  if (isPreviewMode) {
+    document.getElementById(`formatToolbarRow`).style.display = `none`;
+    return;
+  }
+
   const button = document.getElementById(`newFormatButton`);
   const form = document.getElementById(`newFormatForm`);
   const nameField = document.getElementById(`newFormatName`);
@@ -1673,6 +1666,10 @@ function initNewFormatUi() {
  * leaves this on the undo stack.
  */
 function initDeleteFormatUi() {
+  // Nothing is editable in the Preview view - there's no reason to offer this
+  // (the row it lives in is already hidden entirely by initNewFormatUi).
+  if (isPreviewMode) { return; }
+
   const button = document.getElementById(`deleteFormatButton`);
 
   button.addEventListener(`click`, () => {

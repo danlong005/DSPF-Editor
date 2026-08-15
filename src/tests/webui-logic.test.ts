@@ -561,14 +561,15 @@ describe(`setWindowForFormat error trapping`, () => {
         },
         // A second format so the sidebar actually has a "Composed Formats"
         // section to render - proof the successful-render path was exercised
-        // before the error path clears it back out.
+        // before the error path clears it back out. (Only shown in Preview
+        // mode - see loadWebui(`preview`) below.)
         { name: `FMT2`, keywords: [], fields: [] },
       ],
     };
   }
 
   it(`clears the screen instead of throwing when the typed format name doesn't exist yet`, () => {
-    const sandbox = loadWebui();
+    const sandbox = loadWebui(`preview`);
     sandbox.loadDDS(basicModel(), `dds.dspf`, false);
 
     // Render something real first, so there's actually content to clear.
@@ -584,7 +585,7 @@ describe(`setWindowForFormat error trapping`, () => {
   });
 
   it(`clears the screen instead of throwing when rendering fails unexpectedly for any other reason`, () => {
-    const sandbox = loadWebui();
+    const sandbox = loadWebui(`preview`);
     sandbox.loadDDS(basicModel(), `dds.dspf`, false);
     sandbox.setWindowForFormat(`FMT1`);
     expect(sandbox.document.getElementById(`recordFormatSidebar`).children.length).toBeGreaterThan(0);
@@ -688,7 +689,7 @@ describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
   }
 
   it(`renders both as tabs, not accordions, defaulting to the first`, () => {
-    const sandbox = loadWebui();
+    const sandbox = loadWebui(`preview`);
     sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, false);
     sandbox.setWindowForFormat(`FMT1`);
 
@@ -704,7 +705,7 @@ describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
   });
 
   it(`keeps the previously selected tab across a re-render instead of resetting to the first tab`, () => {
-    const sandbox = loadWebui();
+    const sandbox = loadWebui(`preview`);
     sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, false);
     sandbox.setWindowForFormat(`FMT1`);
 
@@ -720,5 +721,74 @@ describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
     sandbox.setWindowForFormat(`FMT1`);
 
     expect(findTabs().getAttribute(`selected-index`)).toBe(`1`);
+  });
+});
+
+describe(`Design vs Preview mode`, () => {
+  function twoFormatModel() {
+    return {
+      formats: [
+        {
+          name: `FMT1`,
+          keywords: [{ name: `CF03`, value: `03`, conditions: [] }],
+          fields: [],
+        },
+        // A second format so the Composed Formats tab has something to list.
+        { name: `FMT2`, keywords: [], fields: [] },
+      ],
+    };
+  }
+
+  function tabHeaders(sandbox: any, containerId: string): string[] {
+    const container = sandbox.document.getElementById(containerId);
+    const tabsElement = container.children.find((el: FakeElement) => el.tagName === `VSCODE-TABS`);
+    if (!tabsElement) { return []; }
+    return tabsElement.children
+      .filter((el: FakeElement) => el.tagName === `VSCODE-TAB-HEADER`)
+      .map((el: FakeElement) => el.innerText);
+  }
+
+  it(`never shows the Composed Formats tab in the Design view, even with other formats available`, () => {
+    const sandbox = loadWebui(`design`);
+    sandbox.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(tabHeaders(sandbox, `recordFormatSidebar`)).not.toContain(`Composed Formats`);
+  });
+
+  it(`shows the Composed Formats tab only in the Preview view`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(tabHeaders(sandbox, `recordFormatSidebar`)).toEqual([`Composed Formats`]);
+  });
+
+  it(`offers the Add Field panel only in the Design view`, () => {
+    const design = loadWebui(`design`);
+    design.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    design.setWindowForFormat(`FMT1`);
+    expect(tabHeaders(design, `fieldInfoSidebar`)).toContain(`Add Field`);
+
+    const preview = loadWebui(`preview`);
+    preview.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    preview.setWindowForFormat(`FMT1`);
+    expect(tabHeaders(preview, `fieldInfoSidebar`)).not.toContain(`Add Field`);
+  });
+
+  it(`makes the format keywords panel read-only in the Preview view`, () => {
+    const design = loadWebui(`design`);
+    design.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    design.setWindowForFormat(`FMT1`);
+    const designPanel = design.createFormatKeywordsTab().html;
+    // Editable: the keyword tree plus a "New Keyword" button.
+    expect(designPanel.children.length).toBe(2);
+
+    const preview = loadWebui(`preview`);
+    preview.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    preview.setWindowForFormat(`FMT1`);
+    const previewPanel = preview.createFormatKeywordsTab().html;
+    // Read-only: no "New Keyword" button, and its tree rows get no edit/delete actions.
+    expect(previewPanel.children.length).toBe(1);
   });
 });

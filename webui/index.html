@@ -1,4 +1,8 @@
 <head>
+  <!-- Must run before {main} (a classic, blocking script) parses below, since
+       main.js reads this once at load to decide Design vs Preview - a panel
+       is one or the other for its whole lifetime, never both. -->
+  <script>window.__mode__ = "{mode}";</script>
   <script src="{elements}" type="module"></script>
   <script src="{konva}"></script>
   <script src="{main}"></script>
@@ -14,7 +18,7 @@
          see them all, and long names get clipped. A filterable dropdown scrolls
          and can be typed into instead. -->
     <div style="padding: 0.5em 1em; border-bottom: 1px solid var(--vscode-editorGroup-border); flex: 0 0 auto;">
-      <div style="display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em;">
+      <div id="formatToolbarRow" style="display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em;">
         <!-- vscode-button's icon is fixed at 16px with no way to resize it, so
              these use vscode-icon's own action-icon mode (a clickable icon,
              styled like VS Code's native toolbar icons) to get a 32px icon. -->

@@ -159,14 +159,18 @@ export interface WebuiSandbox {
  * Loads webui/main.js into a fresh sandboxed context and returns it. Each
  * call is fully independent - module-level state (activeDocument,
  * activeIndicators, etc.) isn't shared across calls.
+ *
+ * @param mode Mirrors the `window.__mode__` the real index.html sets before
+ * main.js runs (see RendererWebview's `{mode}` substitution) - drives the
+ * module-level `isPreviewMode` constant. Defaults to the Design view.
  */
-export function loadWebui(): WebuiSandbox {
+export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
   const elementsByFixedId: Record<string, FakeElement> = {};
   const fixedIds = [
     `recordFormatSidebar`, `fieldInfoSidebar`, `keywordEditorArea`,
     `recordFormatSelector`, `container`, `recordFormatTabs`,
     `newFormatButton`, `newFormatForm`, `newFormatName`, `newFormatConfirm`,
-    `deleteFormatButton`,
+    `deleteFormatButton`, `formatToolbarRow`,
   ];
   for (const id of fixedIds) {
     const el = new FakeElement(`div`);
@@ -212,7 +216,7 @@ export function loadWebui(): WebuiSandbox {
 
   const sandbox: any = {
     document: fakeDocument,
-    window: { addEventListener() {}, document: fakeDocument },
+    window: { addEventListener() {}, document: fakeDocument, __mode__: mode },
     Konva,
     acquireVsCodeApi: () => ({ postMessage() {} }),
     console,
