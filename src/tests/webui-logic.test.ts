@@ -438,6 +438,16 @@ describe(`findTouchingFields`, () => {
     expect(sandbox.findTouchingFields([referenced, touching]).size).toBe(2);
     expect(sandbox.findTouchingFields([referenced, notTouching]).size).toBe(0);
   });
+
+  it(`flags two constants (labels) touching each other, not just fields`, () => {
+    const sandbox = loadWebui();
+    const a = constField(`LBL1`, 1, 1, `Name:`); // cols 1-5
+    const touching = constField(`LBL2`, 6, 1, `Date:`); // starts right where LBL1 ends
+    const notTouching = constField(`LBL3`, 7, 1, `Date:`); // one blank column after LBL1
+
+    expect(sandbox.findTouchingFields([a, touching]).size).toBe(2);
+    expect(sandbox.findTouchingFields([a, notTouching]).size).toBe(0);
+  });
 });
 
 describe(`DATE/TIME fields with no DATFMT/TIMFMT`, () => {
@@ -535,5 +545,58 @@ describe(`DATE/TIME fields with no DATFMT/TIMFMT`, () => {
     };
     expect(textOf(sandbox.getElement(dateField, false, `FMT`))).toBe(`mm/dd/yyyy`);
     expect(textOf(sandbox.getElement(timeField, false, `FMT`))).toBe(`hh:mm:ss`);
+  });
+});
+
+describe(`setWindowForFormat error trapping`, () => {
+  function basicModel() {
+    return {
+      formats: [
+        {
+          name: `FMT1`,
+          keywords: [],
+          fields: [
+            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] },
+          ],
+        },
+        // A second format so the sidebar actually has a "Composed Formats"
+        // section to render - proof the successful-render path was exercised
+        // before the error path clears it back out.
+        { name: `FMT2`, keywords: [], fields: [] },
+      ],
+    };
+  }
+
+  it(`clears the screen instead of throwing when the typed format name doesn't exist yet`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(basicModel(), `dds.dspf`, false);
+
+    // Render something real first, so there's actually content to clear.
+    // (Sections are built with appendChild, not an innerHTML string, so
+    // presence of content shows up as child elements, not innerHTML text.)
+    sandbox.setWindowForFormat(`FMT1`);
+    expect(sandbox.document.getElementById(`recordFormatSidebar`).children.length).toBeGreaterThan(0);
+
+    // e.g. the user is still mid-typing a format name into the combobox.
+    expect(() => sandbox.setWindowForFormat(`NOT_A_REAL_FORMAT`)).not.toThrow();
+    expect(sandbox.document.getElementById(`recordFormatSidebar`).children.length).toBe(0);
+    expect(sandbox.document.getElementById(`fieldInfoSidebar`).innerHTML).toBe(``);
+  });
+
+  it(`clears the screen instead of throwing when rendering fails unexpectedly for any other reason`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(basicModel(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+    expect(sandbox.document.getElementById(`recordFormatSidebar`).children.length).toBeGreaterThan(0);
+
+    // Simulate a failure deep in rendering (e.g. a Konva/library error) that
+    // has nothing to do with the format name being valid.
+    sandbox.Konva.Stage = class {
+      constructor() { throw new Error(`boom`); }
+    };
+
+    expect(() => sandbox.setWindowForFormat(`FMT1`)).not.toThrow();
+    expect(sandbox.document.getElementById(`recordFormatSidebar`).innerHTML).toBe(``);
+    expect(sandbox.document.getElementById(`fieldInfoSidebar`).innerHTML).toBe(``);
   });
 });

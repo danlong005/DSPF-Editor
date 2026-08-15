@@ -207,25 +207,53 @@ function loadDDS(newDoc, type, withRerender = true) {
 /**
  * @param {string} chosenFormat 
  */
-function setWindowForFormat(chosenFormat) {
-  let renderWidth = 80;
-  let renderHeight = 24;
+/**
+ * Blanks the canvas and both side panels - used whenever there's nothing
+ * sensible to render (an unrecognized format name) or something unexpected
+ * went wrong while trying to. Never shows an error to the user for this;
+ * that's the whole point of showing nothing instead.
+ */
+function clearRenderedScreen() {
+  if (existingStage) {
+    existingStage.destroy();
+    existingStage = undefined;
+  }
+  document.getElementById(`recordFormatSidebar`).innerHTML = ``;
+  document.getElementById(`fieldInfoSidebar`).innerHTML = ``;
+}
 
-  const globalFormat = activeDocument.formats.find(currentFormat => currentFormat.name === GLOBAL_RECORD_FORMAT);
+function setWindowForFormat(chosenFormat) {
   const selectedFormat = activeDocument.formats.find(currentFormat => currentFormat.name === chosenFormat);
 
   if (!selectedFormat) {
     // Not a real error the user needs to see (e.g. still typing into the
     // format combobox) - just show nothing rather than leaving stale
     // content on screen or logging a visible error.
-    if (existingStage) {
-      existingStage.destroy();
-      existingStage = undefined;
-    }
-    document.getElementById(`recordFormatSidebar`).innerHTML = ``;
-    document.getElementById(`fieldInfoSidebar`).innerHTML = ``;
+    clearRenderedScreen();
     return;
   }
+
+  // Belt and braces around the whole render: if anything here throws for a
+  // reason we haven't anticipated (including inside a third-party component
+  // we don't control), fall back to a blank screen instead of surfacing the
+  // global error banner for what's still just "couldn't render this".
+  try {
+    renderFormat(chosenFormat, selectedFormat);
+  } catch (error) {
+    console.warn(`Failed to render format "${chosenFormat}":`, error);
+    clearRenderedScreen();
+  }
+}
+
+/**
+ * @param {string} chosenFormat
+ * @param {RecordInfo} selectedFormat
+ */
+function renderFormat(chosenFormat, selectedFormat) {
+  let renderWidth = 80;
+  let renderHeight = 24;
+
+  const globalFormat = activeDocument.formats.find(currentFormat => currentFormat.name === GLOBAL_RECORD_FORMAT);
 
   switch (activeDocumentType) {
     case `dds.dspf`:
