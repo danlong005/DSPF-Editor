@@ -1285,6 +1285,29 @@ function clearFieldInfo() {
   renderFieldTabs(sidebar, tabs);
 }
 
+/**
+ * Templates below always propose the same base name (e.g. "NEWFLD1") -
+ * clicking the same button twice without renaming the first one would
+ * otherwise silently create two fields with identical names. Appends/bumps
+ * a trailing number until the name is free within the current format.
+ * @param {string} baseName
+ */
+function uniqueFieldName(baseName) {
+  const currentFormat = activeDocument && lastSelectedFormat
+    ? activeDocument.formats.find(format => format.name === lastSelectedFormat)
+    : undefined;
+  const existingNames = new Set((currentFormat ? currentFormat.fields : []).map(field => field.name));
+
+  if (!existingNames.has(baseName)) { return baseName; }
+
+  // Strip any trailing digits first, so repeated clicks land on NEWFLD2,
+  // NEWFLD3, ... instead of colliding forever or growing NEWFLD11, NEWFLD111.
+  const stem = baseName.replace(/\d+$/, ``);
+  let suffix = 2;
+  while (existingNames.has(`${stem}${suffix}`)) { suffix++; }
+  return `${stem}${suffix}`;
+}
+
 function createAddFieldPanel() {
   const panel = document.createElement(`div`);
 
@@ -1315,7 +1338,11 @@ function createAddFieldPanel() {
 
     button.onclick = () => {
       if (lastSelectedFormat) {
-        sendNewField(lastSelectedFormat, field);
+        // Constants have no name at all - nothing to de-duplicate.
+        const fieldToSend = field.name
+          ? { ...field, name: uniqueFieldName(field.name) }
+          : field;
+        sendNewField(lastSelectedFormat, fieldToSend);
       }
     };
 
@@ -1452,7 +1479,11 @@ function updateSelectedFieldSidebar(fieldInfo) {
   /** @type {Property[]} */
   const properties = [];
 
-  if (fieldInfo.name) {
+  // Constants get an internal placeholder name (TEXT1, TEXT2, ...) purely so
+  // the webview has an id to track/select them by - getLinesForField's
+  // `const` branch never writes it out, so editing it here would look like
+  // it did something while actually having no effect on the saved DDS.
+  if (fieldInfo.name && fieldInfo.displayType !== `const`) {
     properties.push({ label: `Name`, value: fieldInfo.name, id: `name` });
   }
 

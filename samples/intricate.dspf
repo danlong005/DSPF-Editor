@@ -79,9 +79,10 @@
      A                                 23  3'F3=Exit'
      A                                      COLOR(BLU)
 
+     A          R JUNK
 
+     A                                  5 11'Last Name:'
+     A            jklname       10A  I  5 22
+     A            jkfname       10A  I  7 22
 
-
-
-
-
+     A                                  7 10'First Name:'

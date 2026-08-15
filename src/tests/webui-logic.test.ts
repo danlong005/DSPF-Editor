@@ -345,6 +345,35 @@ describe(`updateSelectedFieldSidebar - constant fields`, () => {
     const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
     expect(findByDataFieldId(sidebar, `displayType`)).toBeDefined();
   });
+
+  it(`never shows a Name control for a constant, even one with a parser-assigned placeholder name`, () => {
+    const sandbox = loadWebui();
+
+    // The parser gives unnamed literal fields an internal name like TEXT1
+    // purely so the webview has something to key/select them by -
+    // getLinesForField's `const` branch never writes it out, so editing it
+    // here would look like it did something while having no real effect.
+    const constField = {
+      name: `TEXT1`, displayType: `const`, value: `Hello`, position: { x: 1, y: 1 }, keywords: [],
+    };
+    sandbox.updateSelectedFieldSidebar(constField);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    expect(findByDataFieldId(sidebar, `name`)).toBeUndefined();
+  });
+
+  it(`shows an editable Name control for a non-constant field`, () => {
+    const sandbox = loadWebui();
+
+    const field = {
+      name: `FLD1`, displayType: `input`, type: `A`, length: 5, decimals: 0,
+      position: { x: 1, y: 1 }, keywords: [],
+    };
+    sandbox.updateSelectedFieldSidebar(field);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    expect(findByDataFieldId(sidebar, `name`)).toBeDefined();
+  });
 });
 
 describe(`parseDspSizes`, () => {
@@ -855,5 +884,72 @@ describe(`renderComposedPreview`, () => {
     const ids = capturedLayer.children.map((c: any) => c.config.id);
     expect(ids).not.toContain(`HEADER::H1`);
     expect(ids).toContain(`FOOTER::F1`);
+  });
+});
+
+describe(`uniqueFieldName`, () => {
+  function modelWithFields(fieldNames: string[]) {
+    return {
+      formats: [
+        {
+          name: `FMT1`,
+          keywords: [],
+          fields: fieldNames.map((name, i) => ({
+            name, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined,
+            position: { x: 1, y: i + 1 }, keywords: [], conditions: [],
+          })),
+        },
+      ],
+    };
+  }
+
+  it(`returns the base name unchanged when it's not already used`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithFields([]), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.uniqueFieldName(`NEWFLD1`)).toBe(`NEWFLD1`);
+  });
+
+  it(`bumps a trailing number when the base name is already taken`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithFields([`NEWFLD1`]), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.uniqueFieldName(`NEWFLD1`)).toBe(`NEWFLD2`);
+  });
+
+  it(`keeps bumping past several already-taken numbers`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithFields([`NEWFLD1`, `NEWFLD2`, `NEWFLD3`]), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.uniqueFieldName(`NEWFLD1`)).toBe(`NEWFLD4`);
+  });
+
+  it(`appends a number when the base name doesn't already end in one`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithFields([`DATEFLD`]), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.uniqueFieldName(`DATEFLD`)).toBe(`DATEFLD2`);
+  });
+
+  it(`only considers fields in the currently selected format, not other formats`, () => {
+    const sandbox = loadWebui();
+    const model = {
+      formats: [
+        {
+          name: `FMT1`,
+          keywords: [],
+          fields: [{ name: `NEWFLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] }],
+        },
+        { name: `FMT2`, keywords: [], fields: [] },
+      ],
+    };
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT2`);
+
+    expect(sandbox.uniqueFieldName(`NEWFLD1`)).toBe(`NEWFLD1`);
   });
 });
