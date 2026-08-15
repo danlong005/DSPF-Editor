@@ -632,3 +632,24 @@ describe(`showRendererError`, () => {
     expect(banner.textContent).toContain(`something actually broke`);
   });
 });
+
+describe(`isValidFormatName`, () => {
+  it.each([
+    `FMT1`, `A`, `$FMT`, `#FMT`, `@FMT`, `AB_CD`, `A123456789`,
+  ])(`accepts %s`, (name) => {
+    const sandbox = loadWebui();
+    expect(sandbox.isValidFormatName(name)).toBe(true);
+  });
+
+  it.each([
+    [``, `empty`],
+    [`1FMT`, `starting with a digit`],
+    [`FMT NAME`, `containing a space`],
+    [`A12345678901`, `over 10 characters`],
+    [`fmt1`, `lowercase (names are uppercased before validating)`],
+    [`FMT-1`, `containing a hyphen`],
+  ])(`rejects %s (%s)`, (name) => {
+    const sandbox = loadWebui();
+    expect(sandbox.isValidFormatName(name)).toBe(false);
+  });
+});

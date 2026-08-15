@@ -229,4 +229,37 @@ describe('DisplayFile tests', () => {
     expect(reparsed.formats.find(f => f.name === `NEXTFMT`)?.fields[0].value).toBe(`x`);
   });
 
+  it('addFormat appends a new empty record format at the end of the file', () => {
+    let dds = new DisplayFile();
+    dds.parse(dspf1);
+
+    const update = dds.addFormat(`NEWFMT`);
+    expect(update.newLines).toEqual([`     A          R NEWFMT`]);
+    // dspf1 has no trailing newline, so the insertion point is one past its last line.
+    expect(update.range).toEqual({ start: dspf1.length, end: dspf1.length });
+
+    const newDoc = [...dspf1];
+    newDoc.splice(update.range!.start, 0, ...update.newLines);
+
+    const reparsed = new DisplayFile();
+    reparsed.parse(newDoc);
+
+    expect(reparsed.formats.map(f => f.name)).toEqual([GLOBAL_RECORD_NAME, `HEAD`, `FMT1`, `GLOBAL`, `FORM1`, `NEWFMT`]);
+    expect(reparsed.formats.find(f => f.name === `NEWFMT`)?.fields).toEqual([]);
+    // Every earlier format should be completely undisturbed.
+    expect(reparsed.formats.find(f => f.name === `FORM1`)?.fields[0].name).toBe(`FLD0101`);
+  });
+
+  it('addFormat appends after an existing empty file (only the global record)', () => {
+    let dds = new DisplayFile();
+    dds.parse([]);
+
+    const update = dds.addFormat(`FIRSTFMT`);
+    expect(update.range).toEqual({ start: 0, end: 0 });
+
+    const reparsed = new DisplayFile();
+    reparsed.parse(update.newLines);
+    expect(reparsed.formats.map(f => f.name)).toEqual([GLOBAL_RECORD_NAME, `FIRSTFMT`]);
+  });
+
 });

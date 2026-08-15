@@ -1568,8 +1568,8 @@ function sendFieldUpdate(recordFormat, originalFieldName, newFieldInfo) {
 }
 
 /**
- * @param {string} recordFormat 
- * @param {Keyword[]} newKeywords 
+ * @param {string} recordFormat
+ * @param {Keyword[]} newKeywords
  */
 function sendFormatHeaderUpdate(recordFormat, newKeywords) {
   vscode.postMessage({
@@ -1578,6 +1578,79 @@ function sendFormatHeaderUpdate(recordFormat, newKeywords) {
     newKeywords
   });
 }
+
+/**
+ * @param {string} formatName
+ */
+function sendNewFormat(formatName) {
+  vscode.postMessage({
+    command: `newFormat`,
+    formatName
+  });
+}
+
+/**
+ * DDS record format names: letters/digits/$/#/@/_, starting with a letter
+ * or $/#/@, up to 10 characters.
+ * @param {string} name
+ */
+function isValidFormatName(name) {
+  return /^[A-Z$#@][A-Z0-9$#@_]{0,9}$/.test(name);
+}
+
+/**
+ * Wires up the static "New Format" button/inline form in the top bar. These
+ * elements live directly in index.html (not rebuilt on every render like
+ * the record format selector), so this only needs to run once.
+ */
+function initNewFormatUi() {
+  const button = document.getElementById(`newFormatButton`);
+  const form = document.getElementById(`newFormatForm`);
+  const nameField = document.getElementById(`newFormatName`);
+  const confirmButton = document.getElementById(`newFormatConfirm`);
+
+  const showForm = () => {
+    button.style.display = `none`;
+    form.style.display = `flex`;
+    nameField.value = ``;
+    nameField.focus();
+  };
+
+  const hideForm = () => {
+    form.style.display = `none`;
+    button.style.display = ``;
+  };
+
+  const submit = () => {
+    const typed = (nameField.value || ``).trim().toUpperCase();
+    if (!typed || !isValidFormatName(typed)) { return; }
+
+    const existingNames = activeDocument ? activeDocument.formats.map(format => format.name) : [];
+    if (typed === GLOBAL_RECORD_FORMAT || existingNames.includes(typed)) {
+      // Name already taken - leave the form open so the user can pick another.
+      return;
+    }
+
+    // Optimistically select the new format now, so that once the extension
+    // host round-trips the reload it's the one that ends up shown, instead
+    // of loadDDS falling back to whatever the first format happens to be.
+    lastSelectedFormat = typed;
+    sendNewFormat(typed);
+    hideForm();
+  };
+
+  button.addEventListener(`click`, showForm);
+  confirmButton.addEventListener(`click`, submit);
+  nameField.addEventListener(`keydown`, (event) => {
+    if (event.key === `Enter`) {
+      submit();
+    } else if (event.key === `Escape`) {
+      hideForm();
+    }
+  });
+}
+
+window.addEventListener(`DOMContentLoaded`, initNewFormatUi);
 
 /**
  * Used to create panels for editable key/value lists.

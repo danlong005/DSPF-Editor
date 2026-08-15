@@ -514,6 +514,14 @@ export class DisplayFile {
     return range;
   }
 
+  /** Appends a brand-new, empty record format to the end of the file. */
+  public addFormat(name: string): DdsUpdate {
+    const newLines = DisplayFile.getHeaderLinesForFormat(name, []);
+    const insertAt = this.formats[this.formats.length - 1].range.end;
+
+    return { newLines, range: { start: insertAt, end: insertAt } };
+  }
+
   // TODO: test cases
   public updateFormatHeader(originalFormatName: string, keywords: Keyword[]): DdsUpdate|undefined {
     // The file-level/global record has no 'R' line of its own to regenerate -

@@ -128,6 +128,28 @@ export class RendererWebview {
         }
         break;
 
+      case `newFormat`:
+        const formatName: string = message.formatName;
+
+        if (typeof formatName === `string` && formatName.trim().length > 0) {
+          const formatAdd = this.dds?.addFormat(formatName.trim());
+
+          if (formatAdd) {
+            const workspaceEdit = new WorkspaceEdit();
+            workspaceEdit.insert(
+              this.document.uri,
+              new Position(formatAdd.range!.start, 0),
+              formatAdd.newLines.join('\n') + `\n`, // TOOD: use the correct EOL?
+              {label: `Add DDS Record Format`, needsConfirmation: false}
+            );
+
+            if (await this.applyEditAndSave(workspaceEdit)) {
+              this.load(true);
+            }
+          }
+        }
+        break;
+
       case `updateFormat`:
         // This does not update any of the fields in the record format, only the format header
         recordFormat = message.recordFormat;
