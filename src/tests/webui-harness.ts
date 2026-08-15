@@ -54,6 +54,12 @@ class FakeElement {
     return child;
   }
 
+  prepend(child: FakeElement) {
+    this.children.unshift(child);
+    child.parentElement = this;
+    return child;
+  }
+
   get firstChild() { return this.children[0]; }
 
   addEventListener(type: string, handler: (event?: any) => void) {

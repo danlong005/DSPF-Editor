@@ -600,3 +600,35 @@ describe(`setWindowForFormat error trapping`, () => {
     expect(sandbox.document.getElementById(`fieldInfoSidebar`).innerHTML).toBe(``);
   });
 });
+
+describe(`showRendererError`, () => {
+  it(`does not show the banner for vscode-elements' own internal keydown bug`, () => {
+    const sandbox = loadWebui();
+    // Mirrors the real crash: the combobox's own keydown listener throws
+    // "Cannot read properties of undefined (reading 'index')" from inside
+    // vscode-elements.js when Enter is pressed while a typed filter matches
+    // no options - it's not something our code calls into or can try/catch.
+    const libraryError = new Error(`Cannot read properties of undefined (reading 'index')`);
+    libraryError.stack = `TypeError: Cannot read properties of undefined (reading 'index')\n    at ds._onEnterKeyDown (.../webui/scripts/vscode-elements.js:1180:10942)`;
+
+    sandbox.showRendererError(libraryError);
+
+    // No banner element should have been created/inserted at all.
+    expect(sandbox.document.body.children.length).toBe(0);
+  });
+
+  it(`still shows the banner for a real error from our own code`, () => {
+    const sandbox = loadWebui();
+    const ourError = new Error(`something actually broke`);
+    ourError.stack = `Error: something actually broke\n    at renderFormat (.../webui/main.js:252:1)`;
+
+    sandbox.showRendererError(ourError);
+
+    // The fake document's getElementById only resolves the harness's fixed
+    // IDs, not elements created and appended at runtime - so look it up the
+    // same way showRendererError actually inserted it, via document.body.
+    const banner = sandbox.document.body.children.find((el: any) => el.id === `rendererErrorBanner`);
+    expect(banner).not.toBeUndefined();
+    expect(banner.textContent).toContain(`something actually broke`);
+  });
+});

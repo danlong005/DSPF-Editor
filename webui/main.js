@@ -15,6 +15,19 @@
 // Surfaces uncaught errors directly in the webview, since the extension host's
 // devtools picker doesn't reliably target this webview over others (e.g. chat).
 function showRendererError(error) {
+  // vscode-elements' own combobox has a known internal bug: typing a filter
+  // that matches no options while keyboard navigation is still "active"
+  // leaves it reading a stale index and throwing from its own keydown
+  // listener. That listener is registered by the library directly on the
+  // DOM element, invoked by the browser itself - not something our code
+  // calls into, so it can't be try/caught at the call site. This is the
+  // only place it can be intercepted, so treat anything thrown from inside
+  // that library as non-fatal noise: log it, but never surface the banner.
+  if (error && typeof error.stack === `string` && error.stack.includes(`vscode-elements.js`)) {
+    console.warn(`Ignored an internal vscode-elements error:`, error);
+    return;
+  }
+
   let banner = document.getElementById(`rendererErrorBanner`);
   if (!banner) {
     banner = document.createElement(`div`);
