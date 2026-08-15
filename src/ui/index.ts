@@ -108,12 +108,7 @@ export class RendererWebview {
           if (newField) {
             if (newField.range) {
               const workspaceEdit = new WorkspaceEdit();
-              workspaceEdit.insert(
-                this.document.uri,
-                new Position(newField.range.start, 0),
-                newField.newLines.join('\n') + `\n`, // TOOD: use the correct EOL?
-                {label: `Add DDS Field`, needsConfirmation: false}
-              );
+              this.insertDdsLines(workspaceEdit, newField.range.start, newField.newLines, {label: `Add DDS Field`, needsConfirmation: false});
 
               if (await this.applyEditAndSave(workspaceEdit)) {
                 this.load(true);
@@ -157,12 +152,7 @@ export class RendererWebview {
 
           if (formatAdd) {
             const workspaceEdit = new WorkspaceEdit();
-            workspaceEdit.insert(
-              this.document.uri,
-              new Position(formatAdd.range!.start, 0),
-              formatAdd.newLines.join('\n') + `\n`, // TOOD: use the correct EOL?
-              {label: `Add DDS Record Format`, needsConfirmation: false}
-            );
+            this.insertDdsLines(workspaceEdit, formatAdd.range!.start, formatAdd.newLines, {label: `Add DDS Record Format`, needsConfirmation: false});
 
             if (await this.applyEditAndSave(workspaceEdit)) {
               this.load(true);
@@ -210,6 +200,33 @@ export class RendererWebview {
         }
         break;
     }
+  }
+
+  /**
+   * Inserts new DDS lines starting at a given 0-indexed line number (as
+   * computed by dspf.ts, e.g. `RecordInfo.range.end` when appending a new
+   * field/format after everything else in the file). dspf.ts derives that
+   * number from `content.split(/\r?\n/).length`, which doesn't necessarily
+   * match this document's own line count - so when the target line is at or
+   * past the document's real end, a plain `insert(Position(atLine, 0), ...)`
+   * can get silently clamped onto the end of the last existing line instead
+   * of a fresh one, gluing the new content onto whatever's already there
+   * (only surfaces when the file doesn't already end with a newline).
+   * Anchoring on the raw text length instead of a line number sidesteps
+   * that mismatch entirely - it's always the true end of the document.
+   */
+  private insertDdsLines(workspaceEdit: WorkspaceEdit, atLine: number, lines: string[], options: { label: string, needsConfirmation: boolean }) {
+    const text = lines.join('\n') + '\n';
+
+    if (atLine < this.document.lineCount) {
+      workspaceEdit.insert(this.document.uri, new Position(atLine, 0), text, options);
+      return;
+    }
+
+    const existingText = this.document.getText();
+    const endOfDocument = this.document.positionAt(existingText.length);
+    const needsLeadingNewline = existingText.length > 0 && !existingText.endsWith('\n');
+    workspaceEdit.insert(this.document.uri, endOfDocument, (needsLeadingNewline ? '\n' : '') + text, options);
   }
 
   private async applyEditAndSave(workspaceEdit: WorkspaceEdit): Promise<boolean> {

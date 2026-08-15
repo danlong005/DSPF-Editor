@@ -86,3 +86,9 @@
      A            jkfname       10A  I  7 22
 
      A                                  7 10'First Name:'
+
+     A                                  9 12'Job Name:'
+     A            jkjobnm       30A  I  9 22
+     A            NEWFLD1       10A  I 11 22
+     A            NEWFLD2       10A  I 13 22
+     A                                 14  1'Constant'

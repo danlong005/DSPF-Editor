@@ -1308,6 +1308,27 @@ function uniqueFieldName(baseName) {
   return `${stem}${suffix}`;
 }
 
+/**
+ * Every template below also proposed the same fixed position (1, 1) -
+ * adding a second field/constant right after the first landed it directly
+ * on top, hiding whichever was added first and making it unclickable.
+ * Defaults new ones to the row below whatever's already in the format,
+ * so they land somewhere visibly free instead. Not overlap-proof against
+ * every existing field (only checks the lowest row used), but fields can
+ * always be dragged afterward - this only needs to beat "always (1, 1)".
+ */
+function nextAvailableFieldPosition() {
+  const currentFormat = activeDocument && lastSelectedFormat
+    ? activeDocument.formats.find(format => format.name === lastSelectedFormat)
+    : undefined;
+  const fields = currentFormat ? currentFormat.fields : [];
+
+  if (fields.length === 0) { return { x: 1, y: 1 }; }
+
+  const maxY = Math.max(...fields.map(field => field.position.y));
+  return { x: 1, y: maxY + 1 };
+}
+
 function createAddFieldPanel() {
   const panel = document.createElement(`div`);
 
@@ -1338,10 +1359,11 @@ function createAddFieldPanel() {
 
     button.onclick = () => {
       if (lastSelectedFormat) {
+        const fieldToSend = { ...field, position: nextAvailableFieldPosition() };
         // Constants have no name at all - nothing to de-duplicate.
-        const fieldToSend = field.name
-          ? { ...field, name: uniqueFieldName(field.name) }
-          : field;
+        if (fieldToSend.name) {
+          fieldToSend.name = uniqueFieldName(fieldToSend.name);
+        }
         sendNewField(lastSelectedFormat, fieldToSend);
       }
     };
@@ -1356,7 +1378,6 @@ function createAddFieldPanel() {
     length: 10,
     decimals: 0,
     displayType: `input`,
-    position: {x: 1, y: 1},
     keywords: [],
     conditions: [],
   }));
@@ -1366,7 +1387,6 @@ function createAddFieldPanel() {
     length: 8,
     decimals: 0,
     displayType: `output`,
-    position: {x: 1, y: 1},
     keywords: [{name: `DATFMT`, value: `*ISO`, conditions: []}],
     conditions: [],
   }));
@@ -1376,7 +1396,6 @@ function createAddFieldPanel() {
     length: 8,
     decimals: 0,
     displayType: `output`,
-    position: {x: 1, y: 1},
     keywords: [{name: `TIMFMT`, value: `*ISO`, conditions: []}],
     conditions: [],
   }));
@@ -1387,7 +1406,6 @@ function createAddFieldPanel() {
   panel.appendChild(createGroupHeader(`Specials`));
   panel.appendChild(createButton(`Constant text`, `symbol-constant`, {
     value: `Constant`,
-    position: {x: 1, y: 1},
     displayType: `const`,
     keywords: [],
     conditions: [],
@@ -1398,7 +1416,6 @@ function createAddFieldPanel() {
     length: 8,
     decimals: 0,
     displayType: `output`,
-    position: {x: 1, y: 1},
     keywords: [{name: `SYSNAME`, value: undefined, conditions: []}],
     conditions: [],
   }));
@@ -1408,7 +1425,6 @@ function createAddFieldPanel() {
     length: 8,
     decimals: 0,
     displayType: `output`,
-    position: {x: 1, y: 1},
     keywords: [{name: `DATFMT`, value: `*ISO`, conditions: []}],
     conditions: [],
   }));
@@ -1418,7 +1434,6 @@ function createAddFieldPanel() {
     length: 8,
     decimals: 0,
     displayType: `output`,
-    position: {x: 1, y: 1},
     keywords: [{name: `TIMFMT`, value: `*ISO`, conditions: []}],
     conditions: [],
   }));

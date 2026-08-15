@@ -953,3 +953,53 @@ describe(`uniqueFieldName`, () => {
     expect(sandbox.uniqueFieldName(`NEWFLD1`)).toBe(`NEWFLD1`);
   });
 });
+
+describe(`nextAvailableFieldPosition`, () => {
+  it(`defaults to (1, 1) when the format has no fields yet`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.nextAvailableFieldPosition()).toEqual({ x: 1, y: 1 });
+  });
+
+  it(`lands on the row after the lowest field currently in the format, instead of always (1, 1)`, () => {
+    const sandbox = loadWebui();
+    const model = {
+      formats: [{
+        name: `FMT1`,
+        keywords: [],
+        fields: [
+          { name: `A`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] },
+          { name: `B`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 3 }, keywords: [], conditions: [] },
+        ],
+      }],
+    };
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.nextAvailableFieldPosition()).toEqual({ x: 1, y: 4 });
+  });
+
+  it(`never proposes the same position twice in a row (the actual reported bug)`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    // Mirrors adding a Named field then, right after, a Constant text - both
+    // used to hardcode position (1, 1) and land exactly on top of each other.
+    const first = sandbox.nextAvailableFieldPosition();
+    const modelWithFirstField = {
+      formats: [{
+        name: `FMT1`,
+        keywords: [],
+        fields: [{ name: `NEWFLD1`, type: `A`, length: 10, decimals: 0, displayType: `input`, value: undefined, position: first, keywords: [], conditions: [] }],
+      }],
+    };
+    sandbox.loadDDS(modelWithFirstField, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+    const second = sandbox.nextAvailableFieldPosition();
+
+    expect(second).not.toEqual(first);
+  });
+});
