@@ -2,7 +2,7 @@
   "name": "vscode-ibmi-renderer",
   "displayName": "DSPF Editor",
   "description": "IBM i Renderer 2",
-  "version": "0.0.8",
+  "version": "0.0.9",
   "repository": {
     "type": "git",
     "url": "https://github.com/danlong005/vscode-ibmi-renderer.git"

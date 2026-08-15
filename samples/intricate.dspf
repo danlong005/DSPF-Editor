@@ -89,6 +89,7 @@
 
      A                                  9 12'Job Name:'
      A            jkjobnm       30A  I  9 22
+     A  95                                  COLOR(WHT)
      A            NEWFLD1       10A  I 11 22
      A  98                                  COLOR(BLU)
      A            NEWFLD2       10A  I 13 22
