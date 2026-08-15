@@ -206,7 +206,20 @@ function loadDDS(newDoc, type, withRerender = true) {
   activeDocument = newDoc;
   activeDocumentType = type;
 
-  if (!withRerender) { return; }
+  if (!withRerender) {
+    // A full re-render didn't happen here - field-level edits (see
+    // sendFieldUpdate) update the canvas/right sidebar optimistically on
+    // their own instead, to avoid the flicker of a full teardown/rebuild.
+    // But a keyword's conditions could change which indicators are
+    // referenced, so the left sidebar's Indicators tab still needs to
+    // catch up now that activeDocument has the fresh data.
+    if (isPreviewMode) {
+      updatePreviewSidebar();
+    } else {
+      updateRecordFormatSidebar();
+    }
+    return;
+  }
 
   const validNames = activeDocument.formats
     .filter(format => format.name !== GLOBAL_RECORD_FORMAT)

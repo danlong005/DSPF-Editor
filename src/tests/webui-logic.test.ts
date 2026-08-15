@@ -1090,3 +1090,53 @@ describe(`uppercaseOutsideQuotes`, () => {
     expect(sandbox.uppercaseOutsideQuotes(`'one' and 'two'`)).toBe(`'one' AND 'two'`);
   });
 });
+
+describe(`loadDDS - refreshing the Indicators tab after a non-rerendering update`, () => {
+  function fieldWithConditions(conditions: any[]) {
+    return {
+      formats: [{
+        name: `FMT1`,
+        keywords: [],
+        fields: [{
+          name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined,
+          position: { x: 1, y: 1 }, conditions: [],
+          keywords: conditions.length > 0 ? [{ name: `DSPATR`, value: `HI`, conditions }] : [],
+        }],
+      }],
+    };
+  }
+
+  function indicatorsTabPresent(sandbox: any, containerId: string): boolean {
+    const container = sandbox.document.getElementById(containerId);
+    const tabsElement = container.children.find((el: FakeElement) => el.tagName === `VSCODE-TABS`);
+    if (!tabsElement) { return false; }
+    const headers = tabsElement.children
+      .filter((el: FakeElement) => el.tagName === `VSCODE-TAB-HEADER`)
+      .map((el: FakeElement) => el.innerText);
+    return headers.includes(`Indicators`);
+  }
+
+  it(`shows a newly-referenced indicator without a full re-render (Design view)`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(fieldWithConditions([]), `dds.dspf`, true);
+    sandbox.setWindowForFormat(`FMT1`);
+    expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(false);
+
+    // Mirrors sendFieldUpdate's round-trip: the extension host reparses and
+    // posts back an 'update' message (withRerender=false), since the field
+    // itself was already updated optimistically on the client.
+    sandbox.loadDDS(fieldWithConditions([{ indicator: 30, negate: false }]), `dds.dspf`, false);
+
+    expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(true);
+  });
+
+  it(`shows a newly-referenced indicator without a full re-render (Preview view)`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS(fieldWithConditions([]), `dds.dspf`, true);
+    expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(false);
+
+    sandbox.loadDDS(fieldWithConditions([{ indicator: 30, negate: false }]), `dds.dspf`, false);
+
+    expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(true);
+  });
+});
