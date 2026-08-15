@@ -1031,10 +1031,15 @@ function setTabs(recordFormats, setActiveTab) {
 
   container.appendChild(select);
 
-  // Nothing to delete when there are no real formats left.
+  // Nothing to delete when there are no real formats left. vscode-icon (used
+  // for this toolbar button, for a larger icon than vscode-button supports)
+  // has no built-in disabled state, so fake one.
   const deleteButton = document.getElementById(`deleteFormatButton`);
   if (deleteButton) {
-    deleteButton.toggleAttribute(`disabled`, recordFormats.length === 0);
+    const disabled = recordFormats.length === 0;
+    deleteButton.toggleAttribute(`disabled`, disabled);
+    deleteButton.style.opacity = disabled ? `0.4` : ``;
+    deleteButton.style.pointerEvents = disabled ? `none` : ``;
   }
 }
 

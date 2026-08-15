@@ -15,8 +15,11 @@
          and can be typed into instead. -->
     <div style="padding: 0.5em 1em; border-bottom: 1px solid var(--vscode-editorGroup-border); flex: 0 0 auto;">
       <div style="display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em;">
-        <vscode-button id="newFormatButton" icon="add" secondary title="Add a new record format"></vscode-button>
-        <vscode-button id="deleteFormatButton" icon="trash" secondary title="Delete the current record format"></vscode-button>
+        <!-- vscode-button's icon is fixed at 16px with no way to resize it, so
+             these use vscode-icon's own action-icon mode (a clickable icon,
+             styled like VS Code's native toolbar icons) to get a 32px icon. -->
+        <vscode-icon id="newFormatButton" name="add" action-icon size="32" label="Add a new record format" title="Add a new record format"></vscode-icon>
+        <vscode-icon id="deleteFormatButton" name="trash" action-icon size="32" label="Delete the current record format" title="Delete the current record format"></vscode-icon>
         <!-- Hidden until "New Format" is clicked. -->
         <div id="newFormatForm" style="display: none; align-items: center; gap: 0.5em;">
           <vscode-textfield id="newFormatName" placeholder="Format name" style="width: 12em;"></vscode-textfield>
@@ -24,7 +27,7 @@
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 0.5em;">
-        <vscode-label for="recordFormatSelect">Record Format:</vscode-label>
+        <vscode-label for="recordFormatSelect">Selected Format:</vscode-label>
         <div id="recordFormatSelector" style="flex: 1; max-width: 24em;"></div>
         <!-- Only shown when DSPSIZ defines more than one size (e.g. *DS3 and *DS4 together). -->
         <div id="dspSizeToggle" style="display: none;"></div>
