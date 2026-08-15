@@ -9,7 +9,7 @@
  * @typedef {import("konva").default.Layer} Layer
  * @typedef {{label: string, id?: string, value: string, options?: {label: string, value: string}[]}} Property
  * @typedef {{[key: string]: string}} NewProperties
- * @typedef {{title: string, html: string|Element, open?: boolean}} Section
+ * @typedef {{title: string, html: string|Element}} Tab
  */
 
 // Surfaces uncaught errors directly in the webview, since the extension host's
@@ -159,6 +159,12 @@ let existingStage = undefined;
 // of the DDS source, they're supplied at runtime, so this never gets saved.
 /** @type {Set<number>} */
 let activeIndicators = new Set();
+
+// Which tab of the left (Composed Formats/Indicators) sidebar is selected.
+// Toggling a checkbox in either tab triggers a full re-render of this
+// sidebar (see setWindowForFormat -> updateRecordFormatSidebar) - without
+// remembering this, that re-render would always snap back to the first tab.
+let recordFormatSidebarTabIndex = 0;
 
 /**
  * @param {import('./dspf.d.ts').Conditional[]} conditions
@@ -1087,8 +1093,8 @@ function setActiveField(konvaElement, fieldInfo) {
 function updateRecordFormatSidebar(recordInfo) {
   const sidebar = document.getElementById(`recordFormatSidebar`);
 
-  /** @type {Section[]} */
-  let sections = [];
+  /** @type {Tab[]} */
+  let tabs = [];
 
   // Always shown, not just in preview mode - selections here are simply
   // ignored (see setWindowForFormat) until preview mode is on, rather than
@@ -1098,25 +1104,22 @@ function updateRecordFormatSidebar(recordInfo) {
     .map(format => format.name);
 
   if (otherFormats.length > 0) {
-    sections.push({
-      title: `Composed Formats`,
-      html: createComposedFormatsPanel(otherFormats),
-      // Stay open across the re-render a toggle triggers, once anything's composed.
-      open: composedFormats.size > 0
-    });
+    tabs.push({ title: `Composed Formats`, html: createComposedFormatsPanel(otherFormats) });
   }
 
   const referencedIndicators = getReferencedIndicators();
   if (referencedIndicators.length > 0) {
-    sections.push({
-      title: `Indicators`,
-      html: createIndicatorsPanel(referencedIndicators),
-      // Stay open across the re-render a toggle triggers, once any indicator is on.
-      open: activeIndicators.size > 0
-    });
+    tabs.push({ title: `Indicators`, html: createIndicatorsPanel(referencedIndicators) });
   }
 
-  renderSections(sidebar, sections);
+  if (tabs.length > 0) {
+    // Clamp in case the previously-selected tab no longer exists (e.g. the
+    // Indicators tab disappeared because nothing references an indicator anymore).
+    const selectedIndex = Math.min(recordFormatSidebarTabIndex, tabs.length - 1);
+    renderTabs(sidebar, tabs, selectedIndex, (index) => { recordFormatSidebarTabIndex = index; });
+  } else {
+    sidebar.innerHTML = ``;
+  }
 
   const modeToggle = document.createElement(`vscode-checkbox`);
   modeToggle.setAttribute(`label`, `Preview mode`);
@@ -1467,42 +1470,16 @@ function updateSelectedFieldSidebar(fieldInfo) {
 }
 
 /**
- * 
- * @param {HTMLElement} sidebar 
- * @param {Section[]} sections 
- */
-function renderSections(sidebar, sections) {
-  sidebar.innerHTML = ``;
-
-  for (let section of sections) {
-    let newSection = document.createElement(`vscode-collapsible`);
-    newSection.setAttribute(`title`, section.title);
-    if (section.open) {
-      newSection.setAttribute(`open`, ``);
-    }
-
-    if (typeof section.html === `string`) {
-      newSection.innerHTML = section.html;
-    } else {
-      newSection.appendChild(section.html);
-    }
-
-    sidebar.appendChild(newSection);
-  }
-}
-
-/**
- * A small, fixed set of tabs (Basic/Keywords for a selected field) - unlike
- * the record-format list, this never grows unboundedly, so a tab strip is a
- * fine fit here.
  * @param {HTMLElement} container
- * @param {{title: string, html: string|Element}[]} tabs
+ * @param {Tab[]} tabs
+ * @param {number} [selectedIndex]
+ * @param {(index: number) => void} [onSelect] called whenever the user picks a different tab
  */
-function renderFieldTabs(container, tabs) {
+function renderTabs(container, tabs, selectedIndex = 0, onSelect = undefined) {
   container.innerHTML = ``;
 
   const tabsElement = document.createElement(`vscode-tabs`);
-  tabsElement.setAttribute(`selected-index`, `0`);
+  tabsElement.setAttribute(`selected-index`, String(selectedIndex));
 
   for (const tab of tabs) {
     const header = document.createElement(`vscode-tab-header`);
@@ -1520,7 +1497,25 @@ function renderFieldTabs(container, tabs) {
     tabsElement.appendChild(panel);
   }
 
+  if (onSelect) {
+    tabsElement.addEventListener(`vsc-tabs-select`, (event) => {
+      onSelect(event.detail.selectedIndex);
+    });
+  }
+
   container.appendChild(tabsElement);
+}
+
+/**
+ * A small, fixed set of tabs (Basic/Keywords for a selected field) - unlike
+ * the record-format list, this never grows unboundedly, so a tab strip is a
+ * fine fit here. Always resets to the first tab, since the context (which
+ * field, or no field) has just changed.
+ * @param {HTMLElement} container
+ * @param {Tab[]} tabs
+ */
+function renderFieldTabs(container, tabs) {
+  renderTabs(container, tabs);
 }
 
 /**

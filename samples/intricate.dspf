@@ -78,44 +78,10 @@
      A                                      CF03(03)
      A                                 23  3'F3=Exit'
      A                                      COLOR(BLU)
-     A          R FMT01
-     A                                  1  2'This is format FMT01'
-     A          R SCREENFM01
-     A                                  1  2'This is format SCREENFM01'
-     A          R FMT02
-     A                                  1  2'This is format FMT02'
-     A          R SCREENFM02
-     A                                  1  2'This is format SCREENFM02'
-     A          R FMT03
-     A                                  1  2'This is format FMT03'
-     A          R SCREENFM03
-     A                                  1  2'This is format SCREENFM03'
-     A          R FMT04
-     A                                  1  2'This is format FMT04'
-     A          R SCREENFM04
-     A                                  1  2'This is format SCREENFM04'
-     A          R FMT05
-     A                                  1  2'This is format FMT05'
-     A          R SCREENFM05
-     A                                  1  2'This is format SCREENFM05'
-     A          R FMT06
-     A                                  1  2'This is format FMT06'
-     A          R SCREENFM06
-     A                                  1  2'This is format SCREENFM06'
-     A          R FMT07
-     A                                  1  2'This is format FMT07'
-     A          R SCREENFM07
-     A                                  1  2'This is format SCREENFM07'
-     A          R FMT08
-     A                                  1  2'This is format FMT08'
-     A          R SCREENFM08
-     A                                  1  2'This is format SCREENFM08'
-     A          R FMT09
-     A                                  1  2'This is format FMT09'
-     A          R SCREENFM09
-     A                                  1  2'This is format SCREENFM09'
-     A          R FMT10
-     A                                  1  2'This is format FMT10'
-     A          R SCREENFM10
-     A                                  1  2'This is format SCREENFM10'
-     A          R JUNK
+
+
+
+
+
+
+

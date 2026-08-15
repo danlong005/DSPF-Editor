@@ -669,3 +669,56 @@ describe(`setTabs (record format selector) - Delete Format button state`, () => 
     expect(sandbox.document.getElementById(`deleteFormatButton`).getAttribute(`disabled`)).toBeUndefined();
   });
 });
+
+describe(`updateRecordFormatSidebar - Composed Formats/Indicators tabs`, () => {
+  function modelWithComposedFormatsAndIndicators() {
+    return {
+      formats: [
+        {
+          name: `FMT1`,
+          keywords: [],
+          fields: [
+            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [{ indicator: 50, negate: false }] },
+          ],
+        },
+        // A second format so the Composed Formats tab has something to list.
+        { name: `FMT2`, keywords: [], fields: [] },
+      ],
+    };
+  }
+
+  it(`renders both as tabs, not accordions, defaulting to the first`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const sidebar = sandbox.document.getElementById(`recordFormatSidebar`);
+    const tabsElement = sidebar.children.find((el: FakeElement) => el.tagName === `VSCODE-TABS`);
+    expect(tabsElement).toBeDefined();
+    expect(tabsElement.getAttribute(`selected-index`)).toBe(`0`);
+
+    const headers = tabsElement.children
+      .filter((el: FakeElement) => el.tagName === `VSCODE-TAB-HEADER`)
+      .map((el: FakeElement) => el.innerText);
+    expect(headers).toEqual([`Composed Formats`, `Indicators`]);
+  });
+
+  it(`keeps the previously selected tab across a re-render instead of resetting to the first tab`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithComposedFormatsAndIndicators(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const sidebar = sandbox.document.getElementById(`recordFormatSidebar`);
+    const findTabs = () => sidebar.children.find((el: FakeElement) => el.tagName === `VSCODE-TABS`);
+
+    // Simulate the user clicking the second tab (Indicators).
+    findTabs().trigger(`vsc-tabs-select`, { detail: { selectedIndex: 1 } });
+
+    // Anything that re-renders this sidebar (e.g. toggling a checkbox inside
+    // it) should land back on the tab the user was actually looking at,
+    // rather than snapping back to the first one.
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(findTabs().getAttribute(`selected-index`)).toBe(`1`);
+  });
+});
