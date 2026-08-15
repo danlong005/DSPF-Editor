@@ -1024,6 +1024,12 @@ function setTabs(recordFormats, setActiveTab) {
   });
 
   container.appendChild(select);
+
+  // Nothing to delete when there are no real formats left.
+  const deleteButton = document.getElementById(`deleteFormatButton`);
+  if (deleteButton) {
+    deleteButton.toggleAttribute(`disabled`, recordFormats.length === 0);
+  }
 }
 
 
@@ -1580,6 +1586,16 @@ function sendFormatHeaderUpdate(recordFormat, newKeywords) {
 }
 
 /**
+ * @param {string} recordFormat
+ */
+function sendDeleteFormat(recordFormat) {
+  vscode.postMessage({
+    command: `deleteFormat`,
+    recordFormat
+  });
+}
+
+/**
  * @param {string} formatName
  */
 function sendNewFormat(formatName) {
@@ -1650,7 +1666,29 @@ function initNewFormatUi() {
   });
 }
 
-window.addEventListener(`DOMContentLoaded`, initNewFormatUi);
+/**
+ * Wires up the static "Delete Format" button in the top bar - deletes
+ * whichever format is currently selected. No confirmation dialog, matching
+ * the existing field-level Delete button; a normal WorkspaceEdit still
+ * leaves this on the undo stack.
+ */
+function initDeleteFormatUi() {
+  const button = document.getElementById(`deleteFormatButton`);
+
+  button.addEventListener(`click`, () => {
+    if (lastSelectedFormat) {
+      sendDeleteFormat(lastSelectedFormat);
+      // Don't keep pointing at a format that's about to disappear - let the
+      // next loadDDS fall back to whatever format ends up first instead.
+      lastSelectedFormat = undefined;
+    }
+  });
+}
+
+window.addEventListener(`DOMContentLoaded`, () => {
+  initNewFormatUi();
+  initDeleteFormatUi();
+});
 
 /**
  * Used to create panels for editable key/value lists.

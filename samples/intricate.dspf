@@ -54,8 +54,8 @@
      A            PRICE          7D 2O  3 34
      A          R SFLCTLFMT
      A                                      SFLCTL(SFLREC)
-     A                                      SFLSIZ(0010)
-     A                                      SFLPAG(0005)
+     A                                      SFLSIZ(9999)
+     A                                      SFLPAG(0010)
      A                                      SFLDSP
      A                                      SFLDSPCTL
      A                                      SFLCLR
@@ -118,3 +118,4 @@
      A                                  1  2'This is format FMT10'
      A          R SCREENFM10
      A                                  1  2'This is format SCREENFM10'
+     A          R JUNK

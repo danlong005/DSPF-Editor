@@ -77,6 +77,23 @@ export class RendererWebview {
         }
         break;
 
+      case 'deleteFormat':
+        recordFormat = message.recordFormat;
+
+        if (typeof recordFormat === `string`) {
+          const deleteFormatRange = this.dds?.getRangeForFormat(recordFormat);
+
+          if (deleteFormatRange) {
+            const workspaceEdit = new WorkspaceEdit();
+            workspaceEdit.delete(this.document.uri, new Range(deleteFormatRange.start, 0, deleteFormatRange.end, 1000));
+
+            if (await this.applyEditAndSave(workspaceEdit)) {
+              this.load(true);
+            }
+          }
+        }
+        break;
+
       case 'newField':
         recordFormat = message.recordFormat;
         fieldInfo = message.fieldInfo;

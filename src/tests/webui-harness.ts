@@ -40,6 +40,11 @@ class FakeElement {
   setAttribute(name: string, value: any) { this.attributes[name] = String(value); }
   getAttribute(name: string) { return this.attributes[name]; }
   removeAttribute(name: string) { delete this.attributes[name]; }
+  toggleAttribute(name: string, force?: boolean) {
+    const shouldHave = force !== undefined ? force : this.attributes[name] === undefined;
+    if (shouldHave) { this.attributes[name] = ``; } else { delete this.attributes[name]; }
+    return shouldHave;
+  }
 
   appendChild(child: FakeElement) {
     this.children.push(child);
@@ -160,6 +165,8 @@ export function loadWebui(): WebuiSandbox {
   const fixedIds = [
     `recordFormatSidebar`, `fieldInfoSidebar`, `keywordEditorArea`,
     `recordFormatSelector`, `container`, `recordFormatTabs`,
+    `newFormatButton`, `newFormatForm`, `newFormatName`, `newFormatConfirm`,
+    `deleteFormatButton`,
   ];
   for (const id of fixedIds) {
     const el = new FakeElement(`div`);

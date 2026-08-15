@@ -522,6 +522,19 @@ export class DisplayFile {
     return { newLines, range: { start: insertAt, end: insertAt } };
   }
 
+  /**
+   * The full line range of a record format, from its 'R' line through its
+   * last field/keyword line (inclusive) - i.e. everything that needs to be
+   * removed to delete the format entirely. The file-level/global record has
+   * no 'R' line of its own and can't be deleted this way.
+   */
+  public getRangeForFormat(recordFormat: string): DdsLineRange|undefined {
+    if (recordFormat === GLOBAL_RECORD_NAME) { return undefined; }
+
+    const format = this.formats.find(f => f.name === recordFormat);
+    return format ? { start: format.range.start, end: format.range.end - 1 } : undefined;
+  }
+
   // TODO: test cases
   public updateFormatHeader(originalFormatName: string, keywords: Keyword[]): DdsUpdate|undefined {
     // The file-level/global record has no 'R' line of its own to regenerate -

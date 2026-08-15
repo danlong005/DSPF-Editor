@@ -653,3 +653,19 @@ describe(`isValidFormatName`, () => {
     expect(sandbox.isValidFormatName(name)).toBe(false);
   });
 });
+
+describe(`setTabs (record format selector) - Delete Format button state`, () => {
+  it(`disables the Delete Format button when there are no record formats left`, () => {
+    const sandbox = loadWebui();
+    sandbox.setTabs([], undefined);
+    expect(sandbox.document.getElementById(`deleteFormatButton`).getAttribute(`disabled`)).not.toBeUndefined();
+  });
+
+  it(`enables the Delete Format button when at least one record format exists`, () => {
+    const sandbox = loadWebui();
+    // Start disabled (no formats), then confirm a later render re-enables it.
+    sandbox.setTabs([], undefined);
+    sandbox.setTabs([`FMT1`], `FMT1`);
+    expect(sandbox.document.getElementById(`deleteFormatButton`).getAttribute(`disabled`)).toBeUndefined();
+  });
+});

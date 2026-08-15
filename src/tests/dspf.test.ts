@@ -262,4 +262,33 @@ describe('DisplayFile tests', () => {
     expect(reparsed.formats.map(f => f.name)).toEqual([GLOBAL_RECORD_NAME, `FIRSTFMT`]);
   });
 
+  it('getRangeForFormat spans a whole record, from its R line through its last content line', () => {
+    let dds = new DisplayFile();
+    dds.parse(dspf1);
+
+    expect(dds.getRangeForFormat(`DONOTEXIST`)).toBeUndefined();
+    // The file-level/global record has no R line of its own - it can't be deleted this way.
+    expect(dds.getRangeForFormat(GLOBAL_RECORD_NAME)).toBeUndefined();
+
+    expect(dds.getRangeForFormat(`FMT1`)).toEqual({ start: 3, end: 8 });
+    // Last format in the file - its range runs to the file's last line.
+    expect(dds.getRangeForFormat(`FORM1`)).toEqual({ start: 12, end: 17 });
+  });
+
+  it('deleting a format via getRangeForFormat removes exactly that record and leaves the rest intact', () => {
+    let dds = new DisplayFile();
+    dds.parse(dspf1);
+
+    const range = dds.getRangeForFormat(`FMT1`)!;
+    const newDoc = [...dspf1];
+    newDoc.splice(range.start, (range.end - range.start) + 1);
+
+    const reparsed = new DisplayFile();
+    reparsed.parse(newDoc);
+
+    expect(reparsed.formats.map(f => f.name)).toEqual([GLOBAL_RECORD_NAME, `HEAD`, `GLOBAL`, `FORM1`]);
+    expect(reparsed.formats.find(f => f.name === `HEAD`)?.fields[0].value).toBe(`vscode-displayfile`);
+    expect(reparsed.formats.find(f => f.name === `FORM1`)?.fields[0].name).toBe(`FLD0101`);
+  });
+
 });
