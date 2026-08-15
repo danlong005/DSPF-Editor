@@ -2185,8 +2185,12 @@ function editKeyword(onUpdate, keyword) {
   button.style.display = `block`;
   button.innerText = `Confirm`;
   button.onclick = () => {
-    const keywordName = group.querySelector(`#keyword`).value;
-    const keywordValue = group.querySelector(`#value`).value;
+    // DDS keyword names and values are conventionally uppercase - parsed
+    // keywords already come back uppercased (see parseKeywords), so typing
+    // a new/edited one in lowercase here would otherwise be the only way to
+    // end up with a lowercase keyword in the source.
+    const keywordName = (group.querySelector(`#keyword`).value || ``).toUpperCase();
+    const keywordValue = (group.querySelector(`#value`).value || ``).toUpperCase();
 
     const ind1 = group.querySelector(`#ind1`).value;
     const neg1 = group.querySelector(`#neg1`).checked;

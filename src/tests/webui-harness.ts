@@ -100,10 +100,21 @@ class FakeElement {
   set innerText(value: string) { this._innerText = value; }
 
   // vscode-single-select's options/value API, per its real accessor pair.
+  // Dynamic property (not declared as a class field) - only meaningful on
+  // select elements, mirroring how main.js just assigns `select.creatable = true`.
+  creatable?: boolean;
   set options(opts: { label: string, value: string }[]) { this._options = opts; }
   get options() { return this._options; }
   set value(val: string) {
-    this._value = this._options.find(o => o.value === val) ? val : undefined;
+    // Only vscode-*-select components constrain .value to something already
+    // in .options - a plain vscode-textfield's .value is just a normal
+    // reflected property, settable to whatever's typed.
+    if (!this.tagName.includes(`SELECT`)) { this._value = val; return; }
+    if (this._options.find(o => o.value === val)) { this._value = val; return; }
+    // A creatable combobox accepts (and adds) a typed value that isn't
+    // already an option, instead of rejecting it - see
+    // _createAndSelectSuggestedOption in the real vscode-elements source.
+    this._value = this.creatable ? val : undefined;
   }
   get value() { return this._value; }
   get checked() { return this.attributes.checked === `true`; }

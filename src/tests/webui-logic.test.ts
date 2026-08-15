@@ -1003,3 +1003,46 @@ describe(`nextAvailableFieldPosition`, () => {
     expect(second).not.toEqual(first);
   });
 });
+
+describe(`editKeyword - uppercasing`, () => {
+  /** editKeyword doesn't return the form group it builds - it appends
+   * directly to #keywordEditorArea - so dig it back out to drive the form.
+   * (Its id is set via the .id property, not setAttribute, so look it up
+   * by tag instead of the #id selector querySelector relies on.) */
+  function currentKeywordEditorGroup(sandbox: any): FakeElement {
+    const area = sandbox.document.getElementById(`keywordEditorArea`);
+    return area.children.find((el: FakeElement) => el.tagName === `VSCODE-FORM-GROUP`);
+  }
+
+  it(`uppercases a typed keyword name, even one not in the predefined list, before saving`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((newKeyword: any) => { saved = newKeyword; });
+
+    const group = currentKeywordEditorGroup(sandbox);
+    const keywordSelect = group.children.find((el: FakeElement) => el.attributes.id === `keyword`);
+    // Mirrors typing a brand-new keyword name into the creatable combobox -
+    // not one of the predefined DDS_KEYWORDS options.
+    keywordSelect.value = `myowncmt`;
+
+    const confirmButton = group.children[group.children.length - 1];
+    confirmButton.onclick();
+
+    expect(saved.name).toBe(`MYOWNCMT`);
+  });
+
+  it(`uppercases a typed value before saving, even when typed in lowercase`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((newKeyword: any) => { saved = newKeyword; }, { name: `COLOR`, value: ``, conditions: [] });
+
+    const group = currentKeywordEditorGroup(sandbox);
+    const valueField = group.children.find((el: FakeElement) => el.attributes.id === `value`);
+    valueField.value = `blu`;
+
+    const confirmButton = group.children[group.children.length - 1];
+    confirmButton.onclick();
+
+    expect(saved.value).toBe(`BLU`);
+  });
+});
