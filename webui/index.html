@@ -9,25 +9,29 @@
 <!-- https://vscode-elements.github.io/guides/getting-started/ -->
 
 <body style="padding: 0em;">
-  <div>
+  <div style="display: flex; flex-direction: column; height: 100vh;">
     <!-- A tab strip doesn't scale to files with many record formats - can't
          see them all, and long names get clipped. A filterable dropdown scrolls
          and can be typed into instead. -->
-    <div style="padding: 0.5em 1em; display: flex; align-items: center; gap: 0.5em; border-bottom: 1px solid var(--vscode-editorGroup-border);">
-      <vscode-label for="recordFormatSelect">Record Format:</vscode-label>
-      <div id="recordFormatSelector" style="flex: 1; max-width: 24em;"></div>
-      <vscode-button id="newFormatButton" icon="add" secondary title="Add a new record format">New Format</vscode-button>
-      <!-- Hidden until "New Format" is clicked. -->
-      <div id="newFormatForm" style="display: none; align-items: center; gap: 0.5em;">
-        <vscode-textfield id="newFormatName" placeholder="Format name" style="width: 12em;"></vscode-textfield>
-        <vscode-button id="newFormatConfirm" icon="check" title="Create">Create</vscode-button>
+    <div style="padding: 0.5em 1em; border-bottom: 1px solid var(--vscode-editorGroup-border); flex: 0 0 auto;">
+      <div style="display: flex; align-items: center; gap: 0.5em; margin-bottom: 0.5em;">
+        <vscode-button id="newFormatButton" icon="add" secondary title="Add a new record format"></vscode-button>
+        <vscode-button id="deleteFormatButton" icon="trash" secondary title="Delete the current record format"></vscode-button>
+        <!-- Hidden until "New Format" is clicked. -->
+        <div id="newFormatForm" style="display: none; align-items: center; gap: 0.5em;">
+          <vscode-textfield id="newFormatName" placeholder="Format name" style="width: 12em;"></vscode-textfield>
+          <vscode-button id="newFormatConfirm" icon="check" title="Create">Create</vscode-button>
+        </div>
       </div>
-      <vscode-button id="deleteFormatButton" icon="trash" secondary title="Delete the current record format">Delete Format</vscode-button>
-      <!-- Only shown when DSPSIZ defines more than one size (e.g. *DS3 and *DS4 together). -->
-      <div id="dspSizeToggle" style="display: none;"></div>
+      <div style="display: flex; align-items: center; gap: 0.5em;">
+        <vscode-label for="recordFormatSelect">Record Format:</vscode-label>
+        <div id="recordFormatSelector" style="flex: 1; max-width: 24em;"></div>
+        <!-- Only shown when DSPSIZ defines more than one size (e.g. *DS3 and *DS4 together). -->
+        <div id="dspSizeToggle" style="display: none;"></div>
+      </div>
     </div>
 
-    <div style="display: flex; height: calc(100vh - 3em);">
+    <div style="display: flex; flex: 1; min-height: 0;">
       <!-- Left Sidebar -->
       <div style="width: 20%; background-color: var(--vscode-sideBar-background); overflow-y: auto;">
         <div id="recordFormatSidebar">
@@ -51,7 +55,6 @@
         <div id="keywordEditorArea">
         </div>
       </div>
-    </div></div>
-
+    </div>
   </div>
 </body>
