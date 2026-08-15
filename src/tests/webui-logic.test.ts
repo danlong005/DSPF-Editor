@@ -1045,4 +1045,48 @@ describe(`editKeyword - uppercasing`, () => {
 
     expect(saved.value).toBe(`BLU`);
   });
+
+  it(`leaves quoted literal text alone while still uppercasing the rest of the value`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((newKeyword: any) => { saved = newKeyword; }, { name: `WDWTITLE`, value: ``, conditions: [] });
+
+    const group = currentKeywordEditorGroup(sandbox);
+    const valueField = group.children.find((el: FakeElement) => el.attributes.id === `value`);
+    valueField.value = `*text 'Confirm delete' *color wht *top *center`;
+
+    const confirmButton = group.children[group.children.length - 1];
+    confirmButton.onclick();
+
+    expect(saved.value).toBe(`*TEXT 'Confirm delete' *COLOR WHT *TOP *CENTER`);
+  });
+});
+
+describe(`uppercaseOutsideQuotes`, () => {
+  it(`uppercases plain text with no quotes`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.uppercaseOutsideQuotes(`blu`)).toBe(`BLU`);
+  });
+
+  it(`leaves the contents of a single quoted literal alone`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.uppercaseOutsideQuotes(`*text 'Hello there'`)).toBe(`*TEXT 'Hello there'`);
+  });
+
+  it(`still uppercases text after a closed quote`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.uppercaseOutsideQuotes(`*text 'Hello' *color blu`)).toBe(`*TEXT 'Hello' *COLOR BLU`);
+  });
+
+  it(`treats a doubled quote as an escaped literal quote, not the end of the string`, () => {
+    const sandbox = loadWebui();
+    // DDS's escape for a literal ' character inside a string is '' - this
+    // must not be mistaken for the string closing and reopening.
+    expect(sandbox.uppercaseOutsideQuotes(`*text 'it''s here' *color blu`)).toBe(`*TEXT 'it''s here' *COLOR BLU`);
+  });
+
+  it(`handles multiple separate quoted sections`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.uppercaseOutsideQuotes(`'one' and 'two'`)).toBe(`'one' AND 'two'`);
+  });
 });

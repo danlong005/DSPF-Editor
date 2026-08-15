@@ -2083,6 +2083,38 @@ const DDS_KEYWORDS = [
 ].sort();
 
 /**
+ * Uppercases everything except DDS string literals (single-quoted text,
+ * e.g. a WDWTITLE's title), since keyword values are conventionally
+ * uppercase but literal text is case-sensitive as typed. A doubled quote
+ * (`''`) inside a literal is DDS's escape for a literal quote character,
+ * not the end of the string, so it doesn't toggle back out.
+ * @param {string} text
+ */
+function uppercaseOutsideQuotes(text) {
+  let result = ``;
+  let inQuotes = false;
+
+  for (let i = 0; i < text.length; i++) {
+    const char = text[i];
+
+    if (char === `'`) {
+      if (inQuotes && text[i + 1] === `'`) {
+        result += `''`;
+        i++;
+        continue;
+      }
+      inQuotes = !inQuotes;
+      result += char;
+      continue;
+    }
+
+    result += inQuotes ? char : char.toUpperCase();
+  }
+
+  return result;
+}
+
+/**
  * @param {(keyword: Keyword) => void} onUpdate
  * @param {Keyword} [keyword]
  */
@@ -2190,7 +2222,9 @@ function editKeyword(onUpdate, keyword) {
     // a new/edited one in lowercase here would otherwise be the only way to
     // end up with a lowercase keyword in the source.
     const keywordName = (group.querySelector(`#keyword`).value || ``).toUpperCase();
-    const keywordValue = (group.querySelector(`#value`).value || ``).toUpperCase();
+    // Keyword names never contain quoted literals, but a value might
+    // (e.g. WDWTITLE's title) - leave that text's case alone.
+    const keywordValue = uppercaseOutsideQuotes(group.querySelector(`#value`).value || ``);
 
     const ind1 = group.querySelector(`#ind1`).value;
     const neg1 = group.querySelector(`#neg1`).checked;

@@ -91,6 +91,7 @@
      A            jkjobnm       30A  I  9 22
      A            NEWFLD1       10A  I 11 22
      A            NEWFLD2       10A  I 13 22
+     A                                      COLOR(YLW)
      A                                 11 13'Constant'
      A            NEWFLD3       10A  I 15 22
      A  99                                  COLOR(RED)
