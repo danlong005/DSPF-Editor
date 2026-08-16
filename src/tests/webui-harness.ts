@@ -67,6 +67,8 @@ class FakeElement {
 
   get firstChild() { return this.children[0]; }
 
+  focus() { /* no-op - just needs to exist so code calling it doesn't throw */ }
+
   addEventListener(type: string, handler: (event?: any) => void) {
     (this.listeners[type] ||= []).push(handler);
   }
@@ -136,6 +138,10 @@ class FakeKonvaNode {
   }
   add(child: FakeKonvaNode) { this.children.push(child); return this; }
   on(type: string, handler: (event?: any) => void) { (this.listeners[type] ||= []).push(handler); }
+  /** Test-only helper (not a real Konva API) to fire registered listeners. */
+  trigger(type: string, event: any = {}) {
+    (this.listeners[type] || []).forEach(handler => handler(event));
+  }
   findOne(selector: string): FakeKonvaNode | undefined {
     const id = selector.replace(`#`, ``);
     const visit = (node: FakeKonvaNode): FakeKonvaNode | undefined => {
@@ -160,6 +166,13 @@ class FakeKonvaNode {
   getStage() { return this; }
   getPointerPosition() { return { x: 0, y: 0 }; }
   fill(color?: string) { if (color !== undefined) { this.config.fill = color; } return this.config.fill; }
+  /** Only meaningful when called on a stage (getStage() returns the node itself here). */
+  container() { return { style: {} as Record<string, string> }; }
+  x(value?: number) { if (value !== undefined) { this.config.x = value; } return this.config.x; }
+  y(value?: number) { if (value !== undefined) { this.config.y = value; } return this.config.y; }
+  width(value?: number) { if (value !== undefined) { this.config.width = value; } return this.config.width; }
+  height(value?: number) { if (value !== undefined) { this.config.height = value; } return this.config.height; }
+  opacity(value?: number) { if (value !== undefined) { this.config.opacity = value; } return this.config.opacity; }
 }
 
 export interface WebuiSandbox {
@@ -181,6 +194,7 @@ export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
     `recordFormatSidebar`, `fieldInfoSidebar`, `keywordEditorArea`,
     `recordFormatSelector`, `container`, `recordFormatTabs`,
     `newFormatButton`, `newFormatForm`, `newFormatName`, `newFormatConfirm`,
+    `renameFormatButton`, `renameFormatForm`, `renameFormatName`, `renameFormatConfirm`,
     `deleteFormatButton`, `formatToolbarRow`, `selectedFormatRow`,
   ];
   for (const id of fixedIds) {

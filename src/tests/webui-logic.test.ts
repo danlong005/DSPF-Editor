@@ -1140,3 +1140,203 @@ describe(`loadDDS - refreshing the Indicators tab after a non-rerendering update
     expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(true);
   });
 });
+
+describe(`window title rendering (WDWTITLE)`, () => {
+  function modelWithWindowTitle(wdwTitleValue: string) {
+    return {
+      formats: [{
+        name: `CONFIRMWIN`,
+        isWindow: true,
+        windowReference: undefined,
+        windowSize: { y: 3, x: 20, width: 40, height: 8 },
+        keywords: [
+          { name: `WINDOW`, value: `3 20 8 40`, conditions: [] },
+          { name: `WDWTITLE`, value: wdwTitleValue, conditions: [] },
+        ],
+        fields: [],
+      }],
+    };
+  }
+
+  function captureLayer(sandbox: any) {
+    let capturedLayer: any;
+    const RealLayer = sandbox.Konva.Layer;
+    sandbox.Konva.Layer = class extends RealLayer {
+      constructor(c: any) { super(c); capturedLayer = this; }
+    };
+    return () => capturedLayer;
+  }
+
+  it(`renders the window's title text, centered at the top by default`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithWindowTitle(`*TEXT 'Confirm Delete' *COLOR WHT *TOP *CENTER`), `dds.dspf`, false);
+    const getLayer = captureLayer(sandbox);
+
+    sandbox.setWindowForFormat(`CONFIRMWIN`);
+
+    const titleGroup = getLayer().children.find((c: any) => c.config.id === `CONFIRMWIN::WINDOWTITLE`);
+    expect(titleGroup).toBeDefined();
+    // Not editable/draggable - it's derived from the keyword, not a real field.
+    expect(titleGroup.config.draggable).toBe(false);
+
+    const text = titleGroup.children.find((c: any) => c.type === `Text`);
+    expect(text.config.text).toBe(`Confirm Delete`);
+  });
+
+  it(`doesn't render anything (or crash) when WDWTITLE has no *TEXT`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithWindowTitle(`*COLOR WHT *TOP *CENTER`), `dds.dspf`, false);
+    const getLayer = captureLayer(sandbox);
+
+    expect(() => sandbox.setWindowForFormat(`CONFIRMWIN`)).not.toThrow();
+
+    const titleGroup = getLayer().children.find((c: any) => c.config.id === `CONFIRMWIN::WINDOWTITLE`);
+    expect(titleGroup).toBeUndefined();
+  });
+});
+
+describe(`initRenameFormatUi`, () => {
+  function twoFormatModel() {
+    return {
+      formats: [
+        { name: `FMT1`, keywords: [], fields: [] },
+        { name: `FMT2`, keywords: [], fields: [] },
+      ],
+    };
+  }
+
+  it(`pre-fills the rename field with the currently selected format's name`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+    sandbox.initRenameFormatUi();
+
+    sandbox.document.getElementById(`renameFormatButton`).trigger(`click`);
+
+    expect(sandbox.document.getElementById(`renameFormatName`).value).toBe(`FMT1`);
+  });
+
+  it(`optimistically tracks the new name after a successful rename, and closes the form`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+    sandbox.initRenameFormatUi();
+
+    const button = sandbox.document.getElementById(`renameFormatButton`);
+    const nameField = sandbox.document.getElementById(`renameFormatName`);
+    const form = sandbox.document.getElementById(`renameFormatForm`);
+
+    button.trigger(`click`);
+    nameField.value = `renamed`; // lowercase, to also prove it gets uppercased
+    nameField.trigger(`keydown`, { key: `Enter` });
+
+    expect(form.style.display).toBe(`none`);
+
+    // Re-opening should now pre-fill with the new (uppercased) name, proving
+    // lastSelectedFormat was updated to track it.
+    button.trigger(`click`);
+    expect(nameField.value).toBe(`RENAMED`);
+  });
+
+  it(`rejects a name that's already used by another format, leaving the form open`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(twoFormatModel(), `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+    sandbox.initRenameFormatUi();
+
+    const button = sandbox.document.getElementById(`renameFormatButton`);
+    const nameField = sandbox.document.getElementById(`renameFormatName`);
+    const form = sandbox.document.getElementById(`renameFormatForm`);
+
+    button.trigger(`click`);
+    nameField.value = `FMT2`;
+    nameField.trigger(`keydown`, { key: `Enter` });
+
+    expect(form.style.display).not.toBe(`none`);
+  });
+
+  it(`does nothing in the Preview view`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.initRenameFormatUi();
+
+    expect(() => sandbox.document.getElementById(`renameFormatButton`).trigger(`click`)).not.toThrow();
+  });
+});
+
+describe(`drag-to-resize handle`, () => {
+  function field(overrides: any = {}) {
+    return {
+      name: `FLD1`, type: `A`, length: 10, decimals: 0, displayType: `output`, value: undefined,
+      position: { x: 1, y: 1 }, keywords: [], conditions: [],
+      ...overrides,
+    };
+  }
+
+  it(`is offered for a normal editable field`, () => {
+    const sandbox = loadWebui();
+    const group = sandbox.getElement(field(), false, `FMT1`);
+    expect(group.findOne(`#resizeHandle`)).toBeDefined();
+  });
+
+  it(`is not offered for a constant - its width comes from its literal text`, () => {
+    const sandbox = loadWebui();
+    const constField = { name: undefined, displayType: `const`, value: `Hello`, position: { x: 1, y: 1 }, keywords: [], conditions: [] };
+    const group = sandbox.getElement(constField, false, `FMT1`);
+    expect(group.findOne(`#resizeHandle`)).toBeUndefined();
+  });
+
+  it(`is not offered for a date or time field - always fixed at 8 characters`, () => {
+    const sandbox = loadWebui();
+    const dateField = field({ name: `DATEFLD`, type: `L`, length: 8, keywords: [{ name: `DATE`, value: undefined, conditions: [] }] });
+    const timeField = field({ name: `TIMEFLD`, type: `T`, length: 8, keywords: [{ name: `TIME`, value: undefined, conditions: [] }] });
+    expect(sandbox.getElement(dateField, false, `FMT1`).findOne(`#resizeHandle`)).toBeUndefined();
+    expect(sandbox.getElement(timeField, false, `FMT1`).findOne(`#resizeHandle`)).toBeUndefined();
+  });
+
+  it(`is not offered in a read-only (displayOnly) render`, () => {
+    const sandbox = loadWebui();
+    const group = sandbox.getElement(field(), true, `FMT1`);
+    expect(group.findOne(`#resizeHandle`)).toBeUndefined();
+  });
+
+  // The harness's fake canvas measureText returns text.length * 8, so
+  // measureCharWidth (50 chars / 50) always resolves to a deterministic
+  // 8px-per-character grid here, regardless of real font metrics.
+  const PX_PER_CHAR = 8;
+
+  it(`snaps to the character grid and keeps a floor of 1 character while dragging`, () => {
+    const sandbox = loadWebui();
+    const group = sandbox.getElement(field({ length: 10 }), false, `FMT1`);
+    const handle = group.findOne(`#resizeHandle`);
+
+    // Dragged to somewhere between character boundaries, and past the left
+    // edge entirely (a negative x) - should snap and floor, not go negative.
+    handle.x(-999);
+    handle.trigger(`dragmove`);
+    expect(handle.x()).toBe(PX_PER_CHAR);
+    expect(handle.y()).toBe(0);
+
+    // The field's own background/label should resize live while dragging.
+    const bg = group.findOne(`#bg`);
+    const label = group.findOne(`#label`);
+    expect(bg.width()).toBe(handle.x() + 6);
+    expect(label.width()).toBe(handle.x() + 6);
+  });
+
+  it(`commits the new length and sends a field update on dragend`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const fieldInfo = field({ length: 10 });
+    const group = sandbox.getElement(fieldInfo, false, `FMT1`);
+    const handle = group.findOne(`#resizeHandle`);
+
+    // 4 characters wide.
+    handle.x(PX_PER_CHAR * 4);
+    handle.trigger(`dragmove`);
+    handle.trigger(`dragend`);
+
+    expect(fieldInfo.length).toBe(4);
+  });
+});

@@ -291,4 +291,30 @@ describe('DisplayFile tests', () => {
     expect(reparsed.formats.find(f => f.name === `FORM1`)?.fields[0].name).toBe(`FLD0101`);
   });
 
+  it('renameFormat regenerates only the R line, leaving fields/keywords below it untouched', () => {
+    let dds = new DisplayFile();
+    dds.parse(dspf1);
+
+    expect(dds.renameFormat(`DONOTEXIST`, `WHATEVER`)).toBeUndefined();
+    // The file-level/global record has no R line of its own - it can't be renamed this way.
+    expect(dds.renameFormat(GLOBAL_RECORD_NAME, `WHATEVER`)).toBeUndefined();
+
+    const update = dds.renameFormat(`FMT1`, `RENAMED`)!;
+    expect(update.newLines).toEqual([`     A          R RENAMED`]);
+    expect(update.range).toEqual({ start: 3, end: 3 });
+
+    const newDoc = [...dspf1];
+    newDoc.splice(update.range!.start, 1, ...update.newLines);
+
+    const reparsed = new DisplayFile();
+    reparsed.parse(newDoc);
+
+    expect(reparsed.formats.map(f => f.name)).toEqual([GLOBAL_RECORD_NAME, `HEAD`, `RENAMED`, `GLOBAL`, `FORM1`]);
+    // Its own keywords/fields (and everything after it) must survive untouched.
+    const renamed = reparsed.formats.find(f => f.name === `RENAMED`)!;
+    expect(renamed.keywords).toEqual([{ name: `SLNO`, value: `03`, conditions: [] }]);
+    expect(renamed.fields.map(f => f.value)).toEqual([`Opt`, `Name`]);
+    expect(reparsed.formats.find(f => f.name === `FORM1`)?.fields[0].name).toBe(`FLD0101`);
+  });
+
 });

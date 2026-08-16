@@ -23,11 +23,17 @@
              these use vscode-icon's own action-icon mode (a clickable icon,
              styled like VS Code's native toolbar icons) to get a 32px icon. -->
         <vscode-icon id="newFormatButton" name="add" action-icon size="32" label="Add a new record format" title="Add a new record format"></vscode-icon>
+        <vscode-icon id="renameFormatButton" name="edit" action-icon size="32" label="Rename the current record format" title="Rename the current record format"></vscode-icon>
         <vscode-icon id="deleteFormatButton" name="trash" action-icon size="32" label="Delete the current record format" title="Delete the current record format"></vscode-icon>
         <!-- Hidden until "New Format" is clicked. -->
         <div id="newFormatForm" style="display: none; align-items: center; gap: 0.5em;">
           <vscode-textfield id="newFormatName" placeholder="Format name" style="width: 12em;"></vscode-textfield>
           <vscode-button id="newFormatConfirm" icon="check" title="Create">Create</vscode-button>
+        </div>
+        <!-- Hidden until "Rename Format" is clicked. -->
+        <div id="renameFormatForm" style="display: none; align-items: center; gap: 0.5em;">
+          <vscode-textfield id="renameFormatName" placeholder="Format name" style="width: 12em;"></vscode-textfield>
+          <vscode-button id="renameFormatConfirm" icon="check" title="Rename">Rename</vscode-button>
         </div>
       </div>
       <div style="display: flex; align-items: center; gap: 0.5em;">

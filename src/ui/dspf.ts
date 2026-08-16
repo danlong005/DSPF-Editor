@@ -535,6 +535,21 @@ export class DisplayFile {
     return format ? { start: format.range.start, end: format.range.end - 1 } : undefined;
   }
 
+  /**
+   * Renames a record format by regenerating just its own 'R <name>' line -
+   * every field/keyword line below it is untouched. The file-level/global
+   * record has no 'R' line of its own and can't be renamed this way.
+   */
+  public renameFormat(originalFormatName: string, newFormatName: string): DdsUpdate|undefined {
+    if (originalFormatName === GLOBAL_RECORD_NAME) { return undefined; }
+
+    const format = this.formats.find(f => f.name === originalFormatName);
+    if (!format) { return undefined; }
+
+    const newLines = DisplayFile.getHeaderLinesForFormat(newFormatName, []);
+    return { newLines, range: { start: format.range.start, end: format.range.start } };
+  }
+
   // TODO: test cases
   public updateFormatHeader(originalFormatName: string, keywords: Keyword[]): DdsUpdate|undefined {
     // The file-level/global record has no 'R' line of its own to regenerate -

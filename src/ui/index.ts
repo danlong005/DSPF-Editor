@@ -98,6 +98,29 @@ export class RendererWebview {
         }
         break;
 
+      case 'renameFormat':
+        recordFormat = message.recordFormat;
+        const newFormatName: string = message.newFormatName;
+
+        if (typeof recordFormat === `string` && typeof newFormatName === `string`) {
+          const rename = this.dds?.renameFormat(recordFormat, newFormatName);
+
+          if (rename?.range) {
+            const workspaceEdit = new WorkspaceEdit();
+            workspaceEdit.replace(
+              this.document.uri,
+              new Range(rename.range.start, 0, rename.range.end, 1000),
+              rename.newLines.join('\n'),
+              {label: `Rename DDS Record Format`, needsConfirmation: false}
+            );
+
+            if (await this.applyEditAndSave(workspaceEdit)) {
+              this.load(true);
+            }
+          }
+        }
+        break;
+
       case 'newField':
         recordFormat = message.recordFormat;
         fieldInfo = message.fieldInfo;

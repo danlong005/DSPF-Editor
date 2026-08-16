@@ -522,36 +522,43 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
           }
         });
 
-        // If no color is found, the default is blue.
-        if (!windowTitle.keywords.find(keyword => keyword.name === `COLOR`)) {
-          windowTitle.keywords.push({
-            name: `COLOR`,
-            value: `BLU`,
-            conditions: []
-          });
+        // No *TEXT means nothing to actually show - WDWTITLE without it
+        // isn't meaningful DDS, but don't crash rendering the rest of the
+        // window over it.
+        if (!windowTitle.value) {
+          windowTitle = undefined;
+        } else {
+          // If no color is found, the default is blue.
+          if (!windowTitle.keywords.find(keyword => keyword.name === `COLOR`)) {
+            windowTitle.keywords.push({
+              name: `COLOR`,
+              value: `BLU`,
+              conditions: []
+            });
+          }
+
+          const txtLength = windowTitle.value.length;
+
+          const yPosition = (windowConfig.baseY) + (yPositionValue === `top` ? 0 : windowConfig.baseHeight);
+          let xPosition = (windowConfig.baseX + 1);
+
+          switch (xPositionValue) {
+          case `center`:
+            xPosition = (windowConfig.baseX + 1) + Math.floor((windowConfig.baseWidth / 2) - (txtLength / 2));
+            break;
+          case `right`:
+            xPosition = (windowConfig.baseX + 1) + windowConfig.baseWidth - txtLength;
+            break;
+          case `left`:
+            xPosition = (windowConfig.baseX + 1);
+            break;
+          }
+
+          windowTitle.position = {
+            x: xPosition,
+            y: yPosition
+          };
         }
-
-        const txtLength = windowTitle.value.length;
-
-        const yPosition = (windowConfig.baseY) + (yPositionValue === `top` ? 0 : windowConfig.baseHeight);
-        let xPosition = (windowConfig.baseX + 1);
-
-        switch (xPositionValue) {
-        case `center`:
-          xPosition = (windowConfig.baseX + 1) + Math.floor((windowConfig.baseWidth / 2) - (txtLength / 2));
-          break;
-        case `right`:
-          xPosition = (windowConfig.baseX + 1) + windowConfig.baseWidth - txtLength;
-          break;
-        case `left`:
-          xPosition = (windowConfig.baseX + 1);
-          break;
-        }
-
-        windowTitle.position = {
-          x: xPosition,
-          y: yPosition
-        };
       }
     }
   }
@@ -580,11 +587,9 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
       }
 
       if (windowTitle) {
-        console.log(`TODO: add window title: ${windowFormat}`);
-        // const windowContent = this.getContent(windowTitle);
-
-        // css += windowContent.css;
-        // body += windowContent.body;
+        // Never editable/draggable on canvas - it's derived from the
+        // WDWTITLE keyword's value, not a real field of its own.
+        layer.add(getElement(windowTitle, true, windowFormat.name));
       }
 
       if (windowFormat.name !== format.name) {
@@ -726,6 +731,60 @@ function renderSpecificField(fieldInfo) {
 
 function elementId(formatName, fieldName) {
   return `${formatName}::${fieldName}`;
+}
+
+/**
+ * A small draggable handle on a field's right edge that resizes its length -
+ * dragging horizontally only, snapped to the character grid, with a floor of
+ * 1 character. Invisible until hovered, so it doesn't visually clutter the
+ * field the rest of the time.
+ * @param {Group} group the field's own Konva group - not yet added to a layer
+ * @param {FieldInfo} fieldInfo
+ * @param {number} initialWidthPx
+ */
+function createResizeHandle(group, fieldInfo, initialWidthPx) {
+  const handleWidth = 6;
+
+  const handle = new Konva.Rect({
+    id: `resizeHandle`,
+    x: initialWidthPx - handleWidth,
+    y: 0,
+    width: handleWidth,
+    height: pxhPerChar,
+    fill: colours.WHT,
+    opacity: 0,
+    draggable: true,
+  });
+
+  handle.on(`mouseenter`, () => {
+    handle.opacity(0.4);
+    const stage = handle.getStage();
+    if (stage) { stage.container().style.cursor = `ew-resize`; }
+  });
+  handle.on(`mouseleave`, () => {
+    handle.opacity(0);
+    const stage = handle.getStage();
+    if (stage) { stage.container().style.cursor = `default`; }
+  });
+
+  handle.on(`dragmove`, () => {
+    const snappedX = Math.max(pxwPerChar, Math.round(handle.x() / pxwPerChar) * pxwPerChar);
+    handle.x(snappedX);
+    handle.y(0);
+
+    const newWidth = snappedX + handleWidth;
+    const bg = group.findOne(`#bg`);
+    const label = group.findOne(`#label`);
+    if (bg) { bg.width(newWidth); }
+    if (label) { label.width(newWidth); }
+  });
+
+  handle.on(`dragend`, () => {
+    fieldInfo.length = Math.max(1, Math.round(handle.x() / pxwPerChar));
+    sendFieldUpdate(lastSelectedFormat, fieldInfo.name, fieldInfo);
+  });
+
+  return handle;
 }
 
 /**
@@ -934,6 +993,7 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
 
   // add text to the label
   group.add(new Konva.Text({
+    id: `label`,
     text: displayValue,
     width: boxInfo.width,
     wrap: `none`,
@@ -948,6 +1008,15 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
     group.on('pointerclick', () => {
       setActiveField(group, fieldInfo);
     });
+  }
+
+  // A small drag handle on the right edge resizes the field's length
+  // directly on the canvas. Only meaningful for a real field's own length -
+  // not a constant's (driven by its literal text) or a date/time field's
+  // (always fixed at 8 characters, whatever gets dragged here).
+  const resizable = !displayOnly && fieldInfo.displayType !== `const` && fieldInfo.type !== `L` && fieldInfo.type !== `T`;
+  if (resizable) {
+    group.add(createResizeHandle(group, fieldInfo, boxInfo.width));
   }
 
   return group;
@@ -1090,16 +1159,18 @@ function setTabs(recordFormats, setActiveTab) {
 
   container.appendChild(select);
 
-  // Nothing to delete when there are no real formats left. vscode-icon (used
-  // for this toolbar button, for a larger icon than vscode-button supports)
-  // has no built-in disabled state, so fake one.
-  const deleteButton = document.getElementById(`deleteFormatButton`);
-  if (deleteButton) {
-    const disabled = recordFormats.length === 0;
-    deleteButton.toggleAttribute(`disabled`, disabled);
-    deleteButton.style.opacity = disabled ? `0.4` : ``;
-    deleteButton.style.pointerEvents = disabled ? `none` : ``;
-  }
+  // Nothing to rename/delete when there are no real formats left. vscode-icon
+  // (used for these toolbar buttons, for a larger icon than vscode-button
+  // supports) has no built-in disabled state, so fake one.
+  const disabled = recordFormats.length === 0;
+  [`renameFormatButton`, `deleteFormatButton`].forEach(id => {
+    const button = document.getElementById(id);
+    if (button) {
+      button.toggleAttribute(`disabled`, disabled);
+      button.style.opacity = disabled ? `0.4` : ``;
+      button.style.pointerEvents = disabled ? `none` : ``;
+    }
+  });
 }
 
 
@@ -1722,6 +1793,18 @@ function sendNewFormat(formatName) {
 }
 
 /**
+ * @param {string} recordFormat
+ * @param {string} newFormatName
+ */
+function sendRenameFormat(recordFormat, newFormatName) {
+  vscode.postMessage({
+    command: `renameFormat`,
+    recordFormat,
+    newFormatName
+  });
+}
+
+/**
  * DDS record format names: letters/digits/$/#/@/_, starting with a letter
  * or $/#/@, up to 10 characters.
  * @param {string} name
@@ -1786,6 +1869,70 @@ function initNewFormatUi() {
 }
 
 /**
+ * Wires up the static "Rename Format" button/inline form in the top bar -
+ * same pattern as initNewFormatUi, just pre-filled with the currently
+ * selected format's name and sending a rename instead of a create.
+ */
+function initRenameFormatUi() {
+  // Nothing is editable in the Preview view - there's no reason to offer this.
+  if (isPreviewMode) { return; }
+
+  const button = document.getElementById(`renameFormatButton`);
+  const form = document.getElementById(`renameFormatForm`);
+  const nameField = document.getElementById(`renameFormatName`);
+  const confirmButton = document.getElementById(`renameFormatConfirm`);
+
+  const showForm = () => {
+    if (!lastSelectedFormat) { return; }
+    button.style.display = `none`;
+    form.style.display = `flex`;
+    nameField.value = lastSelectedFormat;
+    nameField.focus();
+  };
+
+  const hideForm = () => {
+    form.style.display = `none`;
+    button.style.display = ``;
+  };
+
+  const submit = () => {
+    if (!lastSelectedFormat) { return; }
+
+    const typed = (nameField.value || ``).trim().toUpperCase();
+    if (!typed || !isValidFormatName(typed)) { return; }
+
+    if (typed === lastSelectedFormat) {
+      // No actual change.
+      hideForm();
+      return;
+    }
+
+    const existingNames = activeDocument ? activeDocument.formats.map(format => format.name) : [];
+    if (typed === GLOBAL_RECORD_FORMAT || existingNames.includes(typed)) {
+      // Name already taken - leave the form open so the user can pick another.
+      return;
+    }
+
+    const oldName = lastSelectedFormat;
+    // Optimistically point at the new name now, so it's still the one shown
+    // once the extension host round-trips the reload.
+    lastSelectedFormat = typed;
+    sendRenameFormat(oldName, typed);
+    hideForm();
+  };
+
+  button.addEventListener(`click`, showForm);
+  confirmButton.addEventListener(`click`, submit);
+  nameField.addEventListener(`keydown`, (event) => {
+    if (event.key === `Enter`) {
+      submit();
+    } else if (event.key === `Escape`) {
+      hideForm();
+    }
+  });
+}
+
+/**
  * Wires up the static "Delete Format" button in the top bar - deletes
  * whichever format is currently selected. No confirmation dialog, matching
  * the existing field-level Delete button; a normal WorkspaceEdit still
@@ -1824,6 +1971,7 @@ window.addEventListener(`DOMContentLoaded`, () => {
     hidePreviewOnlyChrome();
   }
   initNewFormatUi();
+  initRenameFormatUi();
   initDeleteFormatUi();
 });
 
