@@ -56,7 +56,12 @@
       </div>
 
       <!-- Main Content -->
-      <div style="flex: 1; display: flex; justify-content: center; align-items: flex-start; padding: 2em; overflow: auto;">
+      <!-- justify-content: flex-start (not center) - a canvas wider than this
+           panel (a wide PAGSIZ printer page, or a large DSPSIZ alternate size)
+           must default to showing column 1, not be centered. Centering an
+           overflowing flex item is also a known CSS trap: browsers often
+           can't scroll all the way to the item's start, only its end. -->
+      <div style="flex: 1; display: flex; justify-content: flex-start; align-items: flex-start; padding: 2em; overflow: auto;">
         <div id="containerFrame" style="border: 1px solid var(--vscode-editorGroup-border); border-radius: 4px; padding: 1px; background: var(--vscode-editor-background); box-shadow: 0 2px 8px rgba(0, 0, 0, 0.3);">
           <div id="container"></div>
         </div>
