@@ -30,21 +30,36 @@ jobs:
         id: version
         run: echo "version=$(node -p "require('./package.json').version")" >> "$GITHUB_OUTPUT"
 
-      - name: Package extension
-        # No spaces in the filename - the release step below expands *.vsix
-        # unquoted, and a space would get word-split into two arguments.
-        run: npx @vscode/vsce package --out "DSPF-Editor-${{ steps.version.outputs.version }}.vsix"
-
-      - name: Create GitHub release
+      - name: Check whether this version was already released
+        id: check
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
           TAG="v${{ steps.version.outputs.version }}"
           if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
             echo "Release $TAG already exists - skipping. Bump the version in package.json to publish a new release."
-            exit 0
+            echo "is-new=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "is-new=true" >> "$GITHUB_OUTPUT"
           fi
+
+      - name: Package extension
+        if: steps.check.outputs.is-new == 'true'
+        # No spaces in the filename - the release step below expands *.vsix
+        # unquoted, and a space would get word-split into two arguments.
+        run: npx @vscode/vsce package --out "DSPF-Editor-${{ steps.version.outputs.version }}.vsix"
+
+      - name: Create GitHub release
+        if: steps.check.outputs.is-new == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="v${{ steps.version.outputs.version }}"
           gh release create "$TAG" *.vsix \
             --repo "$GITHUB_REPOSITORY" \
             --title "DSPF Editor $TAG" \
             --generate-notes
+
+      - name: Publish to VS Code Marketplace
+        if: steps.check.outputs.is-new == 'true'
+        run: npx @vscode/vsce publish --packagePath *.vsix -p "${{ secrets.VSCE_PAT }}"
