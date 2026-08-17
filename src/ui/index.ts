@@ -2,8 +2,8 @@ import { readFileSync } from "fs";
 import { Uri, Webview, WebviewPanel, ExtensionContext, workspace, TextDocument, Range, WorkspaceEdit, Position, Disposable } from "vscode";
 import { DisplayFile, FieldInfo, Keyword } from "./dspf";
 
-export const DSPF_VIEW_TYPE = `vscode-ibmi-renderer.dspfEditor`;
-export const PREVIEW_VIEW_TYPE = `vscode-ibmi-renderer.dspfPreview`;
+export const DSPF_VIEW_TYPE = `dspf-editor.dspfEditor`;
+export const PREVIEW_VIEW_TYPE = `dspf-editor.dspfPreview`;
 
 export type RendererMode = `design` | `preview`;
 

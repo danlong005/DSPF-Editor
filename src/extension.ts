@@ -9,7 +9,7 @@ export function activate(context: vscode.ExtensionContext) {
 
 	// Use the console to output diagnostic information (console.log) and errors (console.error)
 	// This line of code will only be executed once when your extension is activated
-	console.log('Congratulations, your extension "vscode-ibmi-renderer" is now active!');
+	console.log('Congratulations, your extension "dspf-editor" is now active!');
 
 	context.subscriptions.push(
 		vscode.window.registerCustomEditorProvider(
@@ -41,7 +41,7 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand('vscode-ibmi-renderer.launchRenderer', (uri?: vscode.Uri) => {
+		vscode.commands.registerCommand('dspf-editor.launchRenderer', (uri?: vscode.Uri) => {
 			const target = uri || vscode.window.activeTextEditor?.document.uri;
 			if (target) {
 				vscode.commands.executeCommand('vscode.openWith', target, DSPF_VIEW_TYPE, vscode.ViewColumn.Beside);
@@ -50,7 +50,7 @@ export function activate(context: vscode.ExtensionContext) {
 	);
 
 	context.subscriptions.push(
-		vscode.commands.registerCommand('vscode-ibmi-renderer.launchPreview', (uri?: vscode.Uri) => {
+		vscode.commands.registerCommand('dspf-editor.launchPreview', (uri?: vscode.Uri) => {
 			const target = uri || vscode.window.activeTextEditor?.document.uri;
 			if (target) {
 				vscode.commands.executeCommand('vscode.openWith', target, PREVIEW_VIEW_TYPE, vscode.ViewColumn.Beside);

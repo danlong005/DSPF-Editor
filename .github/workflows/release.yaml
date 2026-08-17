@@ -14,7 +14,7 @@ jobs:
     runs-on: ubuntu-latest
     # Only run in this repo, not if this workflow file ever ends up merged
     # into an upstream/other fork - releases here shouldn't happen elsewhere.
-    if: github.repository == 'danlong005/vscode-ibmi-renderer'
+    if: github.repository == 'danlong005/DSPF-Editor'
     steps:
       - uses: actions/checkout@v4
 
