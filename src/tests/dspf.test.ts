@@ -318,3 +318,163 @@ describe('DisplayFile tests', () => {
   });
 
 });
+
+/**
+ * Builds a single DDS source line at the exact column positions
+ * DisplayFile.parse() reads (verified byte-for-byte against the real
+ * fixture lines above): conditionals 6-16, record indicator at 16,
+ * name 18-28, len 29-34, type at 34, decimals 35-37, usage at 37, line
+ * (Y) 38-41, position (X) 41-44, keywords/literal from 44 on.
+ */
+function ddsLine(opts: {
+  recordIndicator?: string, name?: string, len?: string, type?: string,
+  dec?: string, inout?: string, y?: string, x?: string, keywords?: string,
+}): string {
+  const { recordIndicator = ` `, name = ``, len = ``, type = ``, dec = ``, inout = ` `, y = ``, x = ``, keywords = `` } = opts;
+  const chars: string[] = [];
+  const put = (start: number, str: string) => { for (let i = 0; i < str.length; i++) { chars[start + i] = str[i]; } };
+
+  put(0, `     A`);
+  chars[16] = recordIndicator;
+  put(18, name.padEnd(10));
+  put(29, len.padStart(5));
+  chars[34] = type;
+  put(35, dec.padStart(2));
+  chars[37] = inout;
+  put(38, y.padStart(3));
+  put(41, x.padStart(3));
+  put(44, keywords);
+
+  let line = ``;
+  for (let i = 0; i < Math.max(chars.length, 80); i++) { line += chars[i] || ` `; }
+  return line;
+}
+
+describe(`printer file line layout (assignPrinterLines)`, () => {
+  const record = (name: string) => ddsLine({ recordIndicator: `R`, name });
+  const field = (name: string, x: string, y = ``) =>
+    ddsLine({ name, type: `A`, len: `5`, inout: `O`, x, y });
+  const keyword = (value: string) => ddsLine({ keywords: value });
+
+  it(`a blank-Y field with no spacing keyword continues on the current line`, () => {
+    const lines = [
+      record(`DETAIL`),
+      field(`F1`, `10`), // no Y, no keywords -> line 1
+      field(`F2`, `20`), // no Y, no keywords -> stays on line 1
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const fields = dds.formats.find(f => f.name === `DETAIL`)!.fields;
+    expect(fields.map(f => f.position.y)).toEqual([1, 1]);
+  });
+
+  it(`SPACEB advances the cursor before printing, SKIPB jumps to an absolute line`, () => {
+    const lines = [
+      record(`DETAIL`),
+      field(`F1`, `10`), // line 1
+      field(`F3`, `5`), keyword(`SPACEB(2)`), // 1 + 2 = 3
+      field(`F4`, `5`), keyword(`SKIPB(10)`), // absolute 10
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const fields = dds.formats.find(f => f.name === `DETAIL`)!.fields;
+    expect(fields.map(f => f.position.y)).toEqual([1, 3, 10]);
+  });
+
+  it(`SPACEA/SKIPA adjust the cursor after printing, so the *next* blank-Y field moves`, () => {
+    const lines = [
+      record(`DETAIL`),
+      field(`F4`, `5`), keyword(`SKIPB(10)`), // absolute 10
+      field(`F5`, `5`), keyword(`SPACEA(1)`), // stays on 10, then cursor -> 11
+      field(`F6`, `5`), // 11
+      field(`F8`, `5`), keyword(`SKIPA(99)`), // stays on 11, then cursor -> 99
+      field(`F9`, `5`), // 99
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const fields = dds.formats.find(f => f.name === `DETAIL`)!.fields;
+    expect(fields.map(f => f.position.y)).toEqual([10, 10, 11, 11, 99]);
+  });
+
+  it(`an explicit-Y field resyncs the cursor for later blank-Y fields`, () => {
+    const lines = [
+      record(`DETAIL`),
+      field(`F1`, `10`), // 1
+      field(`F7`, `5`, `50`), // explicit Y=50
+      field(`F8`, `5`), // continues at 50
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const fields = dds.formats.find(f => f.name === `DETAIL`)!.fields;
+    expect(fields.map(f => f.position.y)).toEqual([1, 50, 50]);
+  });
+
+  it(`the cursor resets to line 1 at the start of the next record format`, () => {
+    const lines = [
+      record(`DETAIL1`),
+      field(`F1`, `5`), keyword(`SKIPB(40)`), // 40
+      record(`DETAIL2`),
+      field(`F2`, `5`), // resets to 1, not 40
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    expect(dds.formats.find(f => f.name === `DETAIL1`)!.fields[0].position.y).toBe(40);
+    expect(dds.formats.find(f => f.name === `DETAIL2`)!.fields[0].position.y).toBe(1);
+  });
+
+  it(`SKIPB wins over a simultaneous (technically illegal) SPACEB on the same field`, () => {
+    const lines = [
+      record(`DETAIL`),
+      field(`F1`, `5`), keyword(`SKIPB(7)`), keyword(`SPACEB(2)`),
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    expect(dds.formats.find(f => f.name === `DETAIL`)!.fields[0].position.y).toBe(7);
+  });
+
+  it(`a non-numeric spacing argument (a field reference) is ignored rather than guessed`, () => {
+    const lines = [
+      record(`DETAIL`),
+      field(`F1`, `5`), keyword(`SPACEB(VARFLD)`),
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    // Unresolvable at design time - cursor left unchanged, so the field
+    // just behaves as if it had no spacing keyword at all.
+    expect(dds.formats.find(f => f.name === `DETAIL`)!.fields[0].position.y).toBe(1);
+  });
+
+  it(`a record-level SPACEB/SKIPB seeds the cursor before the first field`, () => {
+    const spacedLines = [
+      record(`DETAIL`),
+      keyword(`SPACEB(5)`),
+      field(`F1`, `5`),
+    ];
+    const spaced = new DisplayFile();
+    spaced.parse(spacedLines);
+    expect(spaced.formats.find(f => f.name === `DETAIL`)!.fields[0].position.y).toBe(6);
+
+    const skippedLines = [
+      record(`DETAIL`),
+      keyword(`SKIPB(20)`),
+      field(`F1`, `5`),
+    ];
+    const skipped = new DisplayFile();
+    skipped.parse(skippedLines);
+    expect(skipped.formats.find(f => f.name === `DETAIL`)!.fields[0].position.y).toBe(20);
+  });
+});

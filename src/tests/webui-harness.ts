@@ -192,7 +192,7 @@ export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
   const elementsByFixedId: Record<string, FakeElement> = {};
   const fixedIds = [
     `recordFormatSidebar`, `fieldInfoSidebar`, `keywordEditorArea`,
-    `recordFormatSelector`, `container`, `recordFormatTabs`,
+    `recordFormatSelector`, `container`, `recordFormatTabs`, `dspSizeToggle`,
     `newFormatButton`, `newFormatForm`, `newFormatName`, `newFormatConfirm`,
     `renameFormatButton`, `renameFormatForm`, `renameFormatName`, `renameFormatConfirm`,
     `deleteFormatButton`, `formatToolbarRow`, `selectedFormatRow`,
@@ -239,11 +239,17 @@ export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
     Text: class extends FakeKonvaNode { constructor(c: any) { super(`Text`, c); } },
   };
 
+  // Recorded here (not just swallowed) so tests can assert on what a UI
+  // action actually sends to the extension host, e.g. an Add Field button's
+  // default field shape.
+  const postedMessages: any[] = [];
+
   const sandbox: any = {
     document: fakeDocument,
     window: { addEventListener() {}, document: fakeDocument, __mode__: mode },
     Konva,
-    acquireVsCodeApi: () => ({ postMessage() {} }),
+    acquireVsCodeApi: () => ({ postMessage: (message: any) => postedMessages.push(message) }),
+    postedMessages,
     console,
   };
   vm.createContext(sandbox);

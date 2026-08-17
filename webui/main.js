@@ -135,7 +135,7 @@ function heightInP(x) {
 /** @type {DisplayFile|undefined} */
 let activeDocument = undefined;
 
-/** @type {"dds.dspf"|undefined} */
+/** @type {"dds.dspf"|"dds.prtf"|undefined} */
 let activeDocumentType = undefined;
 
 /** @type {string|undefined} */
@@ -199,8 +199,8 @@ function getReferencedIndicators() {
 }
 
 /**
- * @param {DisplayFile} newDoc 
- * @param {"dds.dspf"} type //TODO: support dds.prtf
+ * @param {DisplayFile} newDoc
+ * @param {"dds.dspf"|"dds.prtf"} type
  */
 function loadDDS(newDoc, type, withRerender = true) {
   activeDocument = newDoc;
@@ -296,25 +296,8 @@ function setWindowForFormat(chosenFormat) {
  */
 function renderComposedPreview() {
   try {
-    let renderWidth = 80;
-    let renderHeight = 24;
-
     const globalFormat = activeDocument.formats.find(format => format.name === GLOBAL_RECORD_FORMAT);
-    if (globalFormat) {
-      const displaySize = globalFormat.keywords.find(keyword => keyword.name === `DSPSIZ`);
-      const sizes = displaySize ? parseDspSizes(displaySize.value) : [];
-
-      updateDspSizeToggle(sizes);
-
-      const chosenSize = sizes.length > 1
-        ? (sizes.find(s => s.qualifier === dspSizeQualifier) || sizes[0])
-        : sizes[0];
-
-      if (chosenSize) {
-        renderWidth = chosenSize.width;
-        renderHeight = chosenSize.height;
-      }
-    }
+    const { width: renderWidth, height: renderHeight } = getPageSize(globalFormat);
 
     let width = renderWidth * pxwPerChar;
     let height = renderHeight * pxhPerLine;
@@ -356,30 +339,8 @@ function renderComposedPreview() {
  * @param {RecordInfo} selectedFormat
  */
 function renderFormat(chosenFormat, selectedFormat) {
-  let renderWidth = 80;
-  let renderHeight = 24;
-
   const globalFormat = activeDocument.formats.find(currentFormat => currentFormat.name === GLOBAL_RECORD_FORMAT);
-
-  switch (activeDocumentType) {
-    case `dds.dspf`:
-      if (globalFormat) {
-        const displaySize = globalFormat.keywords.find(keyword => keyword.name === `DSPSIZ`);
-        const sizes = displaySize ? parseDspSizes(displaySize.value) : [];
-
-        updateDspSizeToggle(sizes);
-
-        const chosenSize = sizes.length > 1
-          ? (sizes.find(s => s.qualifier === dspSizeQualifier) || sizes[0])
-          : sizes[0];
-
-        if (chosenSize) {
-          renderWidth = chosenSize.width;
-          renderHeight = chosenSize.height;
-        }
-      }
-      break;
-  }
+  const { width: renderWidth, height: renderHeight } = getPageSize(globalFormat);
 
   let width = renderWidth * pxwPerChar;
   let height = renderHeight * pxhPerLine;
@@ -1133,6 +1094,58 @@ function updateDspSizeToggle(sizes) {
 }
 
 /**
+ * PAGSIZ(lines columns) sizes a printer file's page. Unlike DSPSIZ, it never
+ * defines more than one size - there's no *DSx-style alternate to choose
+ * between.
+ * @param {string} value
+ * @returns {{height: number, width: number}|undefined}
+ */
+function parsePagSize(value) {
+  const parts = parseParms(value);
+  const height = Number(parts[0]);
+  const width = Number(parts[1]);
+
+  if (Number.isNaN(height) || Number.isNaN(width)) { return undefined; }
+
+  return { height, width };
+}
+
+// Standard line-printer page size (CRTPRTF's PAGESIZE default) - used
+// whenever a printer file's global record doesn't code PAGSIZ at all.
+const DEFAULT_PAGE_SIZE = { height: 66, width: 132 };
+
+/**
+ * The canvas size (in characters) to render at, for either file type -
+ * DSPSIZ/its *DS3/*DS4 toggle for a display file, PAGSIZ (no toggle - it
+ * never has alternates) for a printer file. Shared by the Design view
+ * (renderFormat) and the Preview view (renderComposedPreview) so they can't
+ * drift out of sync on how a file's size is determined.
+ * @param {RecordInfo|undefined} globalFormat
+ * @returns {{width: number, height: number}}
+ */
+function getPageSize(globalFormat) {
+  if (activeDocumentType === `dds.prtf`) {
+    updateDspSizeToggle([]);
+
+    const pageSize = globalFormat?.keywords.find(keyword => keyword.name === `PAGSIZ`);
+    const size = pageSize ? parsePagSize(pageSize.value) : undefined;
+
+    return size || DEFAULT_PAGE_SIZE;
+  }
+
+  const displaySize = globalFormat?.keywords.find(keyword => keyword.name === `DSPSIZ`);
+  const sizes = displaySize ? parseDspSizes(displaySize.value) : [];
+
+  updateDspSizeToggle(sizes);
+
+  const chosenSize = sizes.length > 1
+    ? (sizes.find(s => s.qualifier === dspSizeQualifier) || sizes[0])
+    : sizes[0];
+
+  return chosenSize ? { width: chosenSize.width, height: chosenSize.height } : { width: 80, height: 24 };
+}
+
+/**
  * @param {string[]} recordFormats
  */
 function setTabs(recordFormats, setActiveTab) {
@@ -1176,12 +1189,13 @@ function setTabs(recordFormats, setActiveTab) {
 
 window.addEventListener("message", (event) => {
   const command = event.data.command;
+  const fileType = event.data.fileType === `prtf` ? `dds.prtf` : `dds.dspf`;
   switch (command) {
     case `load`:
-      loadDDS(event.data.dds, `dds.dspf`);
+      loadDDS(event.data.dds, fileType);
       break;
     case 'update':
-      loadDDS(event.data.dds, `dds.dspf`, false);
+      loadDDS(event.data.dds, fileType, false);
       break;
   }
 });
@@ -1455,13 +1469,17 @@ function createAddFieldPanel() {
     return button;
   }
 
+  // Input/Both/Hidden usage doesn't exist on a printer file - only Output is
+  // DDS-legal there, so default this button accordingly per file type.
+  const isPrinterFile = activeDocumentType === `dds.prtf`;
+
   panel.appendChild(createGroupHeader(`Fields`));
   panel.appendChild(createButton(`Named field`, `add`, {
     name: `NEWFLD1`,
     type: `A`,
     length: 10,
     decimals: 0,
-    displayType: `input`,
+    displayType: isPrinterFile ? `output` : `input`,
     keywords: [],
     conditions: [],
   }));
@@ -1595,13 +1613,19 @@ function updateSelectedFieldSidebar(fieldInfo) {
     // also nothing useful to change here for a constant, so just leave it out.
     properties.push({ label: `Value`, value: fieldInfo.value, id: `value` });
   } else {
-    properties.push(
-      { label: `Display Type`, value: fieldInfo.displayType, id: `displayType`, options: [
+    // Input/Both/Hidden usage doesn't exist on a printer file - only Output
+    // is DDS-legal there, so don't offer the others.
+    const displayTypeOptions = activeDocumentType === `dds.prtf`
+      ? [{ label: `Output`, value: `output` }]
+      : [
         { label: `Input`, value: `input` },
         { label: `Output`, value: `output` },
         { label: `Both`, value: `both` },
         { label: `Hidden`, value: `hidden` },
-      ] },
+      ];
+
+    properties.push(
+      { label: `Display Type`, value: fieldInfo.displayType, id: `displayType`, options: displayTypeOptions },
     );
   }
 
@@ -2231,7 +2255,7 @@ const DDS_KEYWORDS = [
   `KEEP`, `LPI`,
   `MNUBAR`, `MSGID`, `MSGLOC`,
   `OUTBIN`, `OUTPUT`, `OVERFLOW`, `OVERLAY`,
-  `PAGEDOWN`, `PAGEUP`, `PAGNBR`, `PAGRTT`, `PRINT`, `PRTQLTY`, `PULLDOWN`, `PUTOVR`, `PUTRETAIN`,
+  `PAGEDOWN`, `PAGEUP`, `PAGNBR`, `PAGRTT`, `PAGSIZ`, `PRINT`, `PRTQLTY`, `PULLDOWN`, `PUTOVR`, `PUTRETAIN`,
   `RANGE`, `REF`, `REFFLD`, `RMVWDW`, `ROLLDOWN`, `ROLLUP`, `RTNCSRLOC`,
   `SFL`, `SFLCLR`, `SFLCSRRRN`, `SFLCTL`, `SFLDROP`, `SFLDSP`, `SFLDSPCTL`, `SFLEND`,
   `SFLENTER`, `SFLFOLD`, `SFLINZ`, `SFLLIN`, `SFLMODE`, `SFLMSG`, `SFLMSGID`, `SFLMSGRCD`,

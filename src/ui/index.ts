@@ -15,6 +15,13 @@ export class RendererWebview {
     return this.context.extensionUri;
   }
 
+  // Not derived from the document's languageId - this extension doesn't
+  // control what language ID another extension (e.g. Code for IBM i)
+  // assigns .prtf files, so that shouldn't be load-bearing here.
+  private get fileType(): `dspf` | `prtf` {
+    return /\.prtf$/i.test(this.document.fileName) ? `prtf` : `dspf`;
+  }
+
   constructor(
     private readonly context: ExtensionContext,
     private readonly document: TextDocument,
@@ -55,6 +62,7 @@ export class RendererWebview {
     this.view.webview.postMessage({
       command: rerender ? "load" : "update",
       dds: this.dds,
+      fileType: this.fileType,
     });
   }
 

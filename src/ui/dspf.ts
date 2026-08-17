@@ -50,12 +50,15 @@ export class DisplayFile {
             this.currentField.handleKeywords();
             this.currentFields.push(this.currentField);
           };
+          if (this.currentRecord) {
+            this.currentRecord.handleKeywords();
+          }
           if (this.currentRecord && this.currentFields) {
+            DisplayFile.assignPrinterLines(this.currentFields, this.currentRecord.keywords);
             this.currentRecord.fields = this.currentFields;
           }
           if (this.currentRecord) {
             this.currentRecord.range.end = index;
-            this.currentRecord.handleKeywords();
             this.formats.push(this.currentRecord);
           }
 
@@ -98,6 +101,7 @@ export class DisplayFile {
             }
 
             this.currentField = new FieldInfo(index);
+            this.currentField.needsPrinterLine = true;
             this.currentField.position = {
               x: totalX,
               y: 0
@@ -201,12 +205,14 @@ export class DisplayFile {
       this.currentFields.push(this.currentField);
     };
     if (this.currentRecord) {
+      this.currentRecord.handleKeywords();
+
       if (this.currentFields) {
+        DisplayFile.assignPrinterLines(this.currentFields, this.currentRecord.keywords);
         this.currentRecord.fields = this.currentFields;
       }
 
       this.currentRecord.range.end = lines.length;
-      this.currentRecord.handleKeywords();
       this.formats.push(this.currentRecord);
     }
 
@@ -232,6 +238,65 @@ export class DisplayFile {
     }
 
 
+  }
+
+  /**
+   * Computes the printed line for every field flagged `needsPrinterLine`
+   * (a printer-file field with no Y coded) by walking them in order with a
+   * running "print cursor", the same way a real printer file lays them out:
+   * a field with no SPACEB/SKIPB continues on the current line, SPACEB(n)
+   * spaces the cursor forward n lines first, SKIPB(n) jumps the cursor
+   * straight to line n, and SPACEA(n)/SKIPA(n) do the equivalent *after*
+   * printing, so they affect where the next blank-Y field lands. An
+   * explicit Y (DSPF-shaped, or a PRTF field that did code a line) resyncs
+   * the cursor. `recordKeywords` seeds the cursor from the record's own
+   * SPACEB/SKIPB, since that's coded on the format, not any one field.
+   *
+   * A SPACEB/SKIPB/SPACEA/SKIPA value that isn't a literal number (a
+   * reference to a runtime field) can't be resolved here, so it's treated
+   * as absent rather than guessed.
+   */
+  static assignPrinterLines(fields: FieldInfo[], recordKeywords: Keyword[] = []): void {
+    const numericValue = (keywords: Keyword[], name: string): number | undefined => {
+      const value = keywords.find(k => k.name === name)?.value;
+      if (value === undefined) { return undefined; }
+      const n = Number(value);
+      return Number.isNaN(n) ? undefined : n;
+    };
+
+    let currentLine = 1;
+
+    const recordSkipB = numericValue(recordKeywords, `SKIPB`);
+    const recordSpaceB = numericValue(recordKeywords, `SPACEB`);
+    if (recordSkipB !== undefined) {
+      currentLine = recordSkipB;
+    } else if (recordSpaceB !== undefined) {
+      currentLine += recordSpaceB;
+    }
+
+    for (const field of fields) {
+      if (field.needsPrinterLine) {
+        const skipB = numericValue(field.keywords, `SKIPB`);
+        const spaceB = numericValue(field.keywords, `SPACEB`);
+        if (skipB !== undefined) {
+          currentLine = skipB;
+        } else if (spaceB !== undefined) {
+          currentLine += spaceB;
+        }
+
+        field.position.y = currentLine;
+      } else if (field.position.y > 0) {
+        currentLine = field.position.y;
+      }
+
+      const skipA = numericValue(field.keywords, `SKIPA`);
+      const spaceA = numericValue(field.keywords, `SPACEA`);
+      if (skipA !== undefined) {
+        currentLine = skipA;
+      } else if (spaceA !== undefined) {
+        currentLine += spaceA;
+      }
+    }
   }
 
   static parseConditionals(conditionColumns: string): Conditional[] {
@@ -656,6 +721,9 @@ export class FieldInfo {
   public length: number = 0;
   public decimals: number = 0;
   public position: { x: number, y: number } = { x: 0, y: 0 };
+  /** Set only for a printer-file field with no Y coded - tells
+   * DisplayFile.assignPrinterLines() it may compute this field's line. */
+  public needsPrinterLine: boolean = false;
   public keywordStrings: { keywordLines: string[], conditionalLines: { [lineIndex: number]: string } } = { keywordLines: [], conditionalLines: {} };
   public conditions: Conditional[] = [];
   public keywords: Keyword[] = [];

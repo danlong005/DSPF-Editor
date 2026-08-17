@@ -19,7 +19,8 @@
     "Other"
   ],
   "activationEvents": [
-    "onLanguage:dds.dspf"
+    "onLanguage:dds.dspf",
+    "onLanguage:dds.prtf"
   ],
   "main": "./dist/extension.js",
   "contributes": {
@@ -39,12 +40,12 @@
       "editor/title": [
         {
           "command": "dspf-editor.launchRenderer",
-          "when": "editorLangId == dds.dspf",
+          "when": "resourceExtname == .dspf || resourceExtname == .DSPF || resourceExtname == .prtf || resourceExtname == .PRTF",
           "group": "navigation"
         },
         {
           "command": "dspf-editor.launchPreview",
-          "when": "editorLangId == dds.dspf",
+          "when": "resourceExtname == .dspf || resourceExtname == .DSPF || resourceExtname == .prtf || resourceExtname == .PRTF",
           "group": "navigation"
         }
       ]
@@ -54,7 +55,7 @@
         "viewType": "dspf-editor.dspfEditor",
         "displayName": "Design",
         "selector": [
-          { "filenamePattern": "*.{dspf,DSPF}" }
+          { "filenamePattern": "*.{dspf,DSPF,prtf,PRTF}" }
         ],
         "priority": "default"
       },
@@ -62,7 +63,7 @@
         "viewType": "dspf-editor.dspfPreview",
         "displayName": "Preview",
         "selector": [
-          { "filenamePattern": "*.{dspf,DSPF}" }
+          { "filenamePattern": "*.{dspf,DSPF,prtf,PRTF}" }
         ],
         "priority": "option"
       }

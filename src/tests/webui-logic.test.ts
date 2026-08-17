@@ -376,6 +376,66 @@ describe(`updateSelectedFieldSidebar - constant fields`, () => {
   });
 });
 
+describe(`updateSelectedFieldSidebar - printer file Display Type restriction`, () => {
+  it(`only offers Output for a printer file field (Input/Both/Hidden aren't DDS-legal there)`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.prtf`, false);
+
+    const field = {
+      name: `FLD1`, displayType: `output`, type: `A`, length: 5, decimals: 0,
+      position: { x: 1, y: 1 }, keywords: [],
+    };
+    sandbox.updateSelectedFieldSidebar(field);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    const displayType = findByDataFieldId(sidebar, `displayType`);
+    expect(displayType!.options).toEqual([{ label: `Output`, value: `output` }]);
+  });
+
+  it(`still offers all four options for a display file field`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
+
+    const field = {
+      name: `FLD1`, displayType: `input`, type: `A`, length: 5, decimals: 0,
+      position: { x: 1, y: 1 }, keywords: [],
+    };
+    sandbox.updateSelectedFieldSidebar(field);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    const displayType = findByDataFieldId(sidebar, `displayType`);
+    expect(displayType!.options.map((o: any) => o.value)).toEqual([`input`, `output`, `both`, `hidden`]);
+  });
+});
+
+describe(`createAddFieldPanel - Named field default usage`, () => {
+  it(`defaults to Output for a printer file (Input isn't DDS-legal there)`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.prtf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const panel = sandbox.createAddFieldPanel();
+    const namedFieldButton = panel.children.find((c: FakeElement) => c.innerText === `Named field`);
+    namedFieldButton.onclick();
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `newField`);
+    expect(sent.fieldInfo.displayType).toBe(`output`);
+  });
+
+  it(`still defaults to Input for a display file`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const panel = sandbox.createAddFieldPanel();
+    const namedFieldButton = panel.children.find((c: FakeElement) => c.innerText === `Named field`);
+    namedFieldButton.onclick();
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `newField`);
+    expect(sent.fieldInfo.displayType).toBe(`input`);
+  });
+});
+
 describe(`parseDspSizes`, () => {
   it(`parses a single size with a qualifier`, () => {
     const sandbox = loadWebui();
@@ -403,6 +463,52 @@ describe(`parseDspSizes`, () => {
     const sandbox = loadWebui();
     expect(sandbox.parseDspSizes(`*DS3`)).toEqual([]);
     expect(sandbox.parseDspSizes(``)).toEqual([]);
+  });
+});
+
+describe(`parsePagSize`, () => {
+  it(`parses a page size`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parsePagSize(`66 132`)).toEqual({ height: 66, width: 132 });
+  });
+
+  it(`returns undefined for garbage input`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parsePagSize(`*DS3`)).toBeUndefined();
+    expect(sandbox.parsePagSize(``)).toBeUndefined();
+  });
+});
+
+describe(`getPageSize`, () => {
+  it(`uses PAGSIZ for a printer file`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.prtf`, false);
+
+    const globalFormat = { keywords: [{ name: `PAGSIZ`, value: `66 132`, conditions: [] }] };
+    expect(sandbox.getPageSize(globalFormat)).toEqual({ width: 132, height: 66 });
+  });
+
+  it(`falls back to the standard 66x132 page size when a printer file has no PAGSIZ`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.prtf`, false);
+
+    expect(sandbox.getPageSize(undefined)).toEqual({ width: 132, height: 66 });
+  });
+
+  it(`ignores DSPSIZ on a printer file, even if present`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.prtf`, false);
+
+    const globalFormat = { keywords: [{ name: `DSPSIZ`, value: `24 80 *DS3`, conditions: [] }] };
+    expect(sandbox.getPageSize(globalFormat)).toEqual({ width: 132, height: 66 });
+  });
+
+  it(`still uses DSPSIZ for a display file`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
+
+    const globalFormat = { keywords: [{ name: `DSPSIZ`, value: `24 80 *DS3`, conditions: [] }] };
+    expect(sandbox.getPageSize(globalFormat)).toEqual({ width: 80, height: 24 });
   });
 });
 

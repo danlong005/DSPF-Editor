@@ -6,6 +6,15 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Added
+
+- Printer file (`.prtf`/`.PRTF`) support: the Design and Preview views now open for printer-file source too. Vertical field placement is computed accurately from `PAGSIZ` and the `SPACEB`/`SKIPB`/`SPACEA`/`SKIPA` line-advance keywords, not guessed - matching how a real printer file lays out when a line-number column is left blank. File type is detected from the file extension, not VS Code's language ID, since another extension controls what language ID gets assigned to `.prtf` files.
+- The keyword combobox now includes `PAGSIZ`.
+
+### Fixed
+
+- The Add Field and Display Type controls no longer offer printer-illegal options (`Input`/`Both`/`Hidden`) when editing a printer file - printer-file fields are output-only.
+
 ## [0.1.1] - 2026-08-17
 
 ### Fixed
