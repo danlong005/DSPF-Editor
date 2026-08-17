@@ -4,6 +4,38 @@ export interface DdsUpdate { newLines: string[], range?: DdsLineRange };
 
 export const GLOBAL_RECORD_NAME = `_GLOBAL`;
 
+export interface LineInsertion { text: string; useAtLine: boolean; }
+
+/**
+ * Decides how to insert freshly generated DDS lines into a document.
+ * `atLine` comes from this module's own line-based math (e.g.
+ * `RecordInfo.range.end` when appending after everything else in a record
+ * or file) - it's derived from a plain `content.split(/\r?\n/).length`,
+ * which doesn't always match a live editor document's own line count.
+ * Inserting directly at that line number when it's at or past the
+ * document's real end can silently land past the last line and glue the
+ * new content onto it instead of starting a fresh one, so callers should
+ * fall back to appending at the document's true end (`useAtLine: false`,
+ * text already includes a leading newline if the document doesn't already
+ * end with one) whenever `atLine` reaches `documentLineCount`.
+ */
+export function planLineInsertion(
+  documentLineCount: number,
+  documentEndsWithNewline: boolean,
+  documentIsEmpty: boolean,
+  atLine: number,
+  lines: string[]
+): LineInsertion {
+  const body = lines.join('\n') + '\n';
+
+  if (atLine < documentLineCount) {
+    return { text: body, useAtLine: true };
+  }
+
+  const needsLeadingNewline = !documentIsEmpty && !documentEndsWithNewline;
+  return { text: (needsLeadingNewline ? '\n' : '') + body, useAtLine: false };
+}
+
 export class DisplayFile {
   public formats: RecordInfo[] = [];
   public currentField: FieldInfo | undefined;

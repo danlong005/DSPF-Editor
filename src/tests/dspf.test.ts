@@ -1,5 +1,5 @@
 import { expect, describe, it } from "vitest";
-import { DdsLineRange, DisplayFile, FieldInfo, GLOBAL_RECORD_NAME } from "../ui/dspf";
+import { DdsLineRange, DisplayFile, FieldInfo, GLOBAL_RECORD_NAME, planLineInsertion } from "../ui/dspf";
 import exp from "constants";
 
 describe('DisplayFile tests', () => {
@@ -476,5 +476,49 @@ describe(`printer file line layout (assignPrinterLines)`, () => {
     const skipped = new DisplayFile();
     skipped.parse(skippedLines);
     expect(skipped.formats.find(f => f.name === `DETAIL`)!.fields[0].position.y).toBe(20);
+  });
+});
+
+describe(`planLineInsertion - new content always starts on its own line`, () => {
+  it(`inserts at the given line when it's still within the document`, () => {
+    const plan = planLineInsertion(10, true, false, 5, [`     A            NEWFLD1       10A  I  1  1`]);
+    expect(plan.useAtLine).toBe(true);
+    expect(plan.text).toBe(`     A            NEWFLD1       10A  I  1  1\n`);
+  });
+
+  it(`falls back to appending at the document's end when the target line is at or past the document's real end`, () => {
+    const plan = planLineInsertion(10, true, false, 10, [`     A          R NEWFMT`]);
+    expect(plan.useAtLine).toBe(false);
+  });
+
+  it(`appends at the document's end even when the target line is somehow past the document's end`, () => {
+    // dspf.ts's own line math (content.split(/\r?\n/).length) can land past
+    // a live document's real lineCount - this must still land safely at the
+    // true end, not just when the two happen to match exactly.
+    const plan = planLineInsertion(10, true, false, 999, [`     A          R NEWFMT`]);
+    expect(plan.useAtLine).toBe(false);
+  });
+
+  it(`prepends a newline when appending to a document that doesn't already end with one - the actual bug this exists to prevent`, () => {
+    // Without this, a plain insert at the end of "...LASTLINE" (no trailing
+    // \n) glues the new content onto LASTLINE instead of starting fresh.
+    const plan = planLineInsertion(5, false, false, 5, [`     A            NEWFLD1       10A  I  1  1`]);
+    expect(plan.useAtLine).toBe(false);
+    expect(plan.text).toBe(`\n     A            NEWFLD1       10A  I  1  1\n`);
+  });
+
+  it(`doesn't prepend a newline when the document already ends with one`, () => {
+    const plan = planLineInsertion(5, true, false, 5, [`     A            NEWFLD1       10A  I  1  1`]);
+    expect(plan.text).toBe(`     A            NEWFLD1       10A  I  1  1\n`);
+  });
+
+  it(`doesn't prepend a newline for a brand-new empty document, even though it doesn't end with one`, () => {
+    const plan = planLineInsertion(0, false, true, 0, [`     A          R FIRSTFMT`]);
+    expect(plan.text).toBe(`     A          R FIRSTFMT\n`);
+  });
+
+  it(`joins multiple new lines with exactly one trailing newline, not one per line plus an extra`, () => {
+    const plan = planLineInsertion(5, true, false, 5, [`     A            FLD1          10A  I  1  1`, `     A                                      COLOR(BLU)`]);
+    expect(plan.text).toBe(`     A            FLD1          10A  I  1  1\n     A                                      COLOR(BLU)\n`);
   });
 });

@@ -1,6 +1,6 @@
 import { readFileSync } from "fs";
 import { Uri, Webview, WebviewPanel, ExtensionContext, workspace, TextDocument, Range, WorkspaceEdit, Position, Disposable } from "vscode";
-import { DisplayFile, FieldInfo, Keyword } from "./dspf";
+import { DisplayFile, FieldInfo, Keyword, planLineInsertion } from "./dspf";
 
 export const DSPF_VIEW_TYPE = `dspf-editor.dspfEditor`;
 export const PREVIEW_VIEW_TYPE = `dspf-editor.dspfPreview`;
@@ -234,30 +234,18 @@ export class RendererWebview {
   }
 
   /**
-   * Inserts new DDS lines starting at a given 0-indexed line number (as
-   * computed by dspf.ts, e.g. `RecordInfo.range.end` when appending a new
-   * field/format after everything else in the file). dspf.ts derives that
-   * number from `content.split(/\r?\n/).length`, which doesn't necessarily
-   * match this document's own line count - so when the target line is at or
-   * past the document's real end, a plain `insert(Position(atLine, 0), ...)`
-   * can get silently clamped onto the end of the last existing line instead
-   * of a fresh one, gluing the new content onto whatever's already there
-   * (only surfaces when the file doesn't already end with a newline).
-   * Anchoring on the raw text length instead of a line number sidesteps
-   * that mismatch entirely - it's always the true end of the document.
+   * Inserts new DDS lines starting at a given 0-indexed line number, as
+   * computed by dspf.ts (e.g. `RecordInfo.range.end` when appending a new
+   * field/format after everything else in the file) - see
+   * `planLineInsertion`'s own doc comment for why that number can't always
+   * be used directly.
    */
   private insertDdsLines(workspaceEdit: WorkspaceEdit, atLine: number, lines: string[], options: { label: string, needsConfirmation: boolean }) {
-    const text = lines.join('\n') + '\n';
-
-    if (atLine < this.document.lineCount) {
-      workspaceEdit.insert(this.document.uri, new Position(atLine, 0), text, options);
-      return;
-    }
-
     const existingText = this.document.getText();
-    const endOfDocument = this.document.positionAt(existingText.length);
-    const needsLeadingNewline = existingText.length > 0 && !existingText.endsWith('\n');
-    workspaceEdit.insert(this.document.uri, endOfDocument, (needsLeadingNewline ? '\n' : '') + text, options);
+    const plan = planLineInsertion(this.document.lineCount, existingText.endsWith('\n'), existingText.length === 0, atLine, lines);
+
+    const position = plan.useAtLine ? new Position(atLine, 0) : this.document.positionAt(existingText.length);
+    workspaceEdit.insert(this.document.uri, position, plan.text, options);
   }
 
   private async applyDocumentEdit(workspaceEdit: WorkspaceEdit): Promise<boolean> {
