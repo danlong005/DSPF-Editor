@@ -74,7 +74,7 @@ export class RendererWebview {
             const workspaceEdit = new WorkspaceEdit();
             workspaceEdit.delete(this.document.uri, new Range(deleteFieldRange.start, 0, deleteFieldRange.end, 1000));
 
-            if (await this.applyEditAndSave(workspaceEdit)) {
+            if (await this.applyDocumentEdit(workspaceEdit)) {
               this.load(true);
             }
           }
@@ -91,7 +91,7 @@ export class RendererWebview {
             const workspaceEdit = new WorkspaceEdit();
             workspaceEdit.delete(this.document.uri, new Range(deleteFormatRange.start, 0, deleteFormatRange.end, 1000));
 
-            if (await this.applyEditAndSave(workspaceEdit)) {
+            if (await this.applyDocumentEdit(workspaceEdit)) {
               this.load(true);
             }
           }
@@ -114,7 +114,7 @@ export class RendererWebview {
               {label: `Rename DDS Record Format`, needsConfirmation: false}
             );
 
-            if (await this.applyEditAndSave(workspaceEdit)) {
+            if (await this.applyDocumentEdit(workspaceEdit)) {
               this.load(true);
             }
           }
@@ -133,7 +133,7 @@ export class RendererWebview {
               const workspaceEdit = new WorkspaceEdit();
               this.insertDdsLines(workspaceEdit, newField.range.start, newField.newLines, {label: `Add DDS Field`, needsConfirmation: false});
 
-              if (await this.applyEditAndSave(workspaceEdit)) {
+              if (await this.applyDocumentEdit(workspaceEdit)) {
                 this.load(true);
               }
             }
@@ -159,7 +159,7 @@ export class RendererWebview {
                 {label: `Update DDS Field`, needsConfirmation: false}
               );
 
-              if (await this.applyEditAndSave(workspaceEdit)) {
+              if (await this.applyDocumentEdit(workspaceEdit)) {
                 this.load(false); //Field is updated on the client
               }
             }
@@ -177,7 +177,7 @@ export class RendererWebview {
             const workspaceEdit = new WorkspaceEdit();
             this.insertDdsLines(workspaceEdit, formatAdd.range!.start, formatAdd.newLines, {label: `Add DDS Record Format`, needsConfirmation: false});
 
-            if (await this.applyEditAndSave(workspaceEdit)) {
+            if (await this.applyDocumentEdit(workspaceEdit)) {
               this.load(true);
             }
           }
@@ -215,7 +215,7 @@ export class RendererWebview {
                 );
               }
 
-              if (await this.applyEditAndSave(workspaceEdit)) {
+              if (await this.applyDocumentEdit(workspaceEdit)) {
                 this.load(true);
               }
             }
@@ -252,14 +252,8 @@ export class RendererWebview {
     workspaceEdit.insert(this.document.uri, endOfDocument, (needsLeadingNewline ? '\n' : '') + text, options);
   }
 
-  private async applyEditAndSave(workspaceEdit: WorkspaceEdit): Promise<boolean> {
-    const applied = await workspace.applyEdit(workspaceEdit);
-
-    if (applied) {
-      await this.document.save();
-    }
-
-    return applied;
+  private async applyDocumentEdit(workspaceEdit: WorkspaceEdit): Promise<boolean> {
+    return workspace.applyEdit(workspaceEdit);
   }
 
   private getBaseHtml(webview: Webview) {

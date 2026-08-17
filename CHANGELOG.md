@@ -6,6 +6,10 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+### Fixed
+
+- Edits made through the renderer no longer autosave the source file. They apply to the open document like any other edit, so you can undo them (`Ctrl+Z`/`Cmd+Z`) or close without saving to discard them.
+
 ## [0.1.0] - 2026-08-17
 
 ### Added
