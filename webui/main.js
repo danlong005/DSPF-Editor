@@ -117,10 +117,15 @@ function snapToFixedGrid(x, y) {
   return {x: newX, y: newY};
 }
 
-function gridCordsToFieldCords(x, y) {
+/**
+ * @param {{x: number, y: number}} [offset] the same window offset getElement
+ *   rendered this field with - subtracted back out so a dragged window
+ *   field's saved position stays relative to the window, not the screen.
+ */
+function gridCordsToFieldCords(x, y, offset = { x: 0, y: 0 }) {
   return {
-    x: Math.round(x / pxwPerChar) + 1,
-    y: Math.round(y / pxhPerLine) + 1
+    x: Math.round(x / pxwPerChar) + 1 - offset.x,
+    y: Math.round(y / pxhPerLine) + 1 - offset.y
   };
 }
 
@@ -558,10 +563,14 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
       }
     }
 
-  // TODO: handle window
   // TODO: make format optional
   if (format) {
-    addFieldsToLayer(layer, format, displayOnly);
+    // A window record's own fields are coded relative to the window's own
+    // top-left corner (row 1, column 1 = the window's first interior row/
+    // column), not the screen - shift them by the window's actual screen
+    // position so they land inside its border instead of wherever that
+    // relative position happens to fall on the full screen.
+    addFieldsToLayer(layer, format, displayOnly, getWindowOffset(format));
   }
 }
 
@@ -617,7 +626,7 @@ function findTouchingFields(fields) {
   return conflicting;
 }
 
-function addFieldsToLayer(layer, format, displayOnly = false) {
+function addFieldsToLayer(layer, format, displayOnly = false, offset = { x: 0, y: 0 }) {
   const subfileFormat = format.keywords.find(keyword => keyword.name === `SFLCTL`);
   // TODO: handle when subFileFormat is found
 
@@ -644,7 +653,7 @@ function addFieldsToLayer(layer, format, displayOnly = false) {
 
           if (indicatorsSatisfied(field.conditions)) {
             subField.name = `${field.name}_${row}`;
-            const content = getElement(subField, true, subfileRecord.name, subfileConflicting.has(field));
+            const content = getElement(subField, true, subfileRecord.name, subfileConflicting.has(field), offset);
             layer.add(content);
           }
         });
@@ -660,7 +669,7 @@ function addFieldsToLayer(layer, format, displayOnly = false) {
   const conflicting = findTouchingFields(fields);
   fields.forEach(field => {
     if (indicatorsSatisfied(field.conditions)) {
-      const content = getElement(field, displayOnly, format.name, conflicting.has(field));
+      const content = getElement(field, displayOnly, format.name, conflicting.has(field), offset);
       layer.add(content);
     }
   });
@@ -683,11 +692,33 @@ function renderSpecificField(fieldInfo) {
   const formatLayer = existingStage.findOne(`#${lastSelectedFormat}`);
 
   if (formatLayer) {
-    const content = getElement(fieldInfo, false, lastSelectedFormat);
+    const format = activeDocument.formats.find(f => f.name === lastSelectedFormat);
+    const content = getElement(fieldInfo, false, lastSelectedFormat, false, getWindowOffset(format));
     formatLayer.add(content);
 
     return content;
   }
+}
+
+/**
+ * The {x, y} offset a record's own fields need shifted by if it's a window -
+ * {0, 0} otherwise. A window's fields are coded relative to its own top-left
+ * corner (row 1, column 1 = the window's own first interior row/column), not
+ * the screen. Mirrors the WINDOW(REF) resolution in renderSelectedFormat (a
+ * window can borrow another record's size instead of coding its own).
+ * @param {RecordInfo|undefined} format
+ * @returns {{x: number, y: number}}
+ */
+function getWindowOffset(format) {
+  if (!format || !format.isWindow) { return { x: 0, y: 0 }; }
+
+  const windowFormat = format.windowReference
+    ? activeDocument.formats.find(f => f.name === format.windowReference)
+    : format;
+
+  if (!windowFormat) { return { x: 0, y: 0 }; }
+
+  return { x: windowFormat.windowSize.x - 1, y: windowFormat.windowSize.y - 1 };
 }
 
 function elementId(formatName, fieldName) {
@@ -756,12 +787,15 @@ function createResizeHandle(group, fieldInfo, initialWidthPx) {
  * @param {boolean} [hasWarning] outlines the field in red - it touches or
  *   overlaps another field/constant on the same row, which doesn't render
  *   correctly on a real 5250 display
+ * @param {{x: number, y: number}} [offset] shifts a window's own field onto
+ *   the screen - see the comment in renderSelectedFormat's addFieldsToLayer
+ *   call for why this is needed. Zero for anything not inside a window.
  */
-function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFormat, hasWarning = false) {
+function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFormat, hasWarning = false, offset = { x: 0, y: 0 }) {
   const boxInfo = {
     id: elementId(formatName, fieldInfo.name),
-    x: widthInP(fieldInfo.position.x - 1),
-    y: heightInP(fieldInfo.position.y - 1),
+    x: widthInP(fieldInfo.position.x - 1 + offset.x),
+    y: heightInP(fieldInfo.position.y - 1 + offset.y),
     width: 0,
     height: heightInP(1),
     draggable: !displayOnly,
@@ -934,7 +968,7 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
       y: newCords.y
     });
 
-    const fieldCords = gridCordsToFieldCords(newCords.x, newCords.y);
+    const fieldCords = gridCordsToFieldCords(newCords.x, newCords.y, offset);
     fieldInfo.position.x = fieldCords.x;
     fieldInfo.position.y = fieldCords.y;
 
@@ -1519,6 +1553,15 @@ function createAddFieldPanel() {
     decimals: 0,
     displayType: `output`,
     keywords: [{name: `SYSNAME`, value: undefined, conditions: []}],
+    conditions: [],
+  }));
+  panel.appendChild(createButton(`System user constant`, `account`, {
+    name: `USRFLD`,
+    type: `A`,
+    length: 10,
+    decimals: 0,
+    displayType: `output`,
+    keywords: [{name: `USER`, value: undefined, conditions: []}],
     conditions: [],
   }));
   panel.appendChild(createButton(`Date constant`, `calendar`, {

@@ -216,6 +216,72 @@ describe(`getElement (canvas field rendering)`, () => {
     const onText = onGroup.children.find((c: any) => c.type === `Text`);
     expect(onText.config.fill).toBe(`red`); // colours.RED - the conditioned COLOR now wins
   });
+
+  it(`shifts a field's rendered position by a supplied offset, in whole characters`, () => {
+    const sandbox = loadWebui();
+    const PX_PER_CHAR = 8;
+    const PX_PER_LINE = 20;
+    const field = { name: `F1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 3, y: 2 }, keywords: [] };
+
+    const unoffset = sandbox.getElement(field, false, `FMT`);
+    const offset = sandbox.getElement(field, false, `FMT`, false, { x: 19, y: 2 });
+
+    expect(offset.config.x - unoffset.config.x).toBe(19 * PX_PER_CHAR);
+    expect(offset.config.y - unoffset.config.y).toBe(2 * PX_PER_LINE);
+  });
+});
+
+describe(`getWindowOffset - window fields are coded relative to the window, not the screen`, () => {
+  it(`returns no offset for a non-window record`, () => {
+    const sandbox = loadWebui();
+    const format = { name: `FMT1`, isWindow: false, fields: [], keywords: [] };
+    expect(sandbox.getWindowOffset(format)).toEqual({ x: 0, y: 0 });
+  });
+
+  it(`returns no offset when there's no format at all (e.g. still typing a format name)`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.getWindowOffset(undefined)).toEqual({ x: 0, y: 0 });
+  });
+
+  it(`offsets by the window's own coded start position`, () => {
+    const sandbox = loadWebui();
+    const format = {
+      name: `WIN1`, isWindow: true, windowReference: undefined,
+      windowSize: { x: 20, y: 3, width: 40, height: 8 },
+      fields: [], keywords: [],
+    };
+    // Row 1 / column 1 inside the window lands on the window's own start
+    // position, so the offset is one less than it (added to a 1-based field
+    // coordinate before it's converted to a 0-based pixel offset).
+    expect(sandbox.getWindowOffset(format)).toEqual({ x: 19, y: 2 });
+  });
+
+  it(`resolves WINDOW(REF) to the referenced record's own coded size`, () => {
+    const sandbox = loadWebui();
+    const template = { name: `TEMPLATE`, isWindow: true, windowReference: undefined, windowSize: { x: 10, y: 5, width: 30, height: 6 }, fields: [], keywords: [] };
+    const usesRef = { name: `USES_REF`, isWindow: true, windowReference: `TEMPLATE`, windowSize: { x: 0, y: 0, width: 80, height: 24 }, fields: [], keywords: [] };
+
+    // getWindowOffset resolves the reference by looking it up in
+    // activeDocument.formats (module state loadDDS sets), not accessible
+    // from a test directly - so give it the same objects it'll find there.
+    sandbox.loadDDS({ formats: [template, usesRef] }, `dds.dspf`, false);
+
+    expect(sandbox.getWindowOffset(usesRef)).toEqual({ x: 9, y: 4 });
+  });
+});
+
+describe(`gridCordsToFieldCords - dragging a field within a window`, () => {
+  it(`subtracts the same offset the field was rendered with, so its saved position stays window-relative`, () => {
+    const sandbox = loadWebui();
+    const PX_PER_CHAR = 8;
+    const PX_PER_LINE = 20;
+
+    const unoffset = sandbox.gridCordsToFieldCords(3 * PX_PER_CHAR, 4 * PX_PER_LINE);
+    const offset = sandbox.gridCordsToFieldCords(3 * PX_PER_CHAR, 4 * PX_PER_LINE, { x: 19, y: 2 });
+
+    expect(offset.x).toBe(unoffset.x - 19);
+    expect(offset.y).toBe(unoffset.y - 2);
+  });
 });
 
 describe(`addFieldsToLayer field visibility`, () => {
@@ -433,6 +499,36 @@ describe(`createAddFieldPanel - Named field default usage`, () => {
 
     const sent = sandbox.postedMessages.find((m: any) => m.command === `newField`);
     expect(sent.fieldInfo.displayType).toBe(`input`);
+  });
+});
+
+describe(`createAddFieldPanel - System user constant`, () => {
+  it(`adds a 10-character output field carrying the USER keyword`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const panel = sandbox.createAddFieldPanel();
+    const userConstantButton = panel.children.find((c: FakeElement) => c.innerText === `System user constant`);
+    userConstantButton.onclick();
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `newField`);
+    expect(sent.fieldInfo.length).toBe(10);
+    expect(sent.fieldInfo.displayType).toBe(`output`);
+    expect(sent.fieldInfo.keywords).toEqual([{ name: `USER`, value: undefined, conditions: [] }]);
+  });
+
+  it(`is offered for a printer file too, same as the other Specials buttons`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.prtf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const panel = sandbox.createAddFieldPanel();
+    const userConstantButton = panel.children.find((c: FakeElement) => c.innerText === `System user constant`);
+    userConstantButton.onclick();
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `newField`);
+    expect(sent.fieldInfo.displayType).toBe(`output`);
   });
 });
 
