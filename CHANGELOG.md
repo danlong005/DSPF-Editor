@@ -6,6 +6,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-08-17
+
 ### Added
 
 - The renderer now opens automatically as the default editor for `.dspf` files, instead of requiring the source already open and a manual command.
