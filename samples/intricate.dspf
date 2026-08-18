@@ -105,11 +105,11 @@
      A            NEWFLD03      10A  I 15 22
      A  99                                  COLOR(RED)
      A                                 13 13'Constant'
-     A          R ALERT     
-     A                                      WINDOW(3 20 8 40)
+     A          R ALERT
+     A                                      WINDOW(2 8 11 61)
      A                                      WDWBORDER(*COLOR RED)
      A                                      WDWTITLE(*TEXT 'Alert' *COLOR WHT *TOP *CENTER)
-     A                                  5 22'This is an alert message.'
-     A            ALERTFLD      1A  B  8 22
+     A                                  3  4'This is an alert message.'
+     A            ALERTFLD       1A  B  5  4
      A                                      COLOR(YLW)
-     A                                 8 24'(Press Enter to continue)'
+     A                                  5  7'(Press Enter to continue)'

@@ -540,18 +540,22 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
 
           const txtLength = windowTitle.value.length;
 
-          const yPosition = (windowConfig.baseY) + (yPositionValue === `top` ? 0 : windowConfig.baseHeight);
-          let xPosition = (windowConfig.baseX + 1);
+          // Relative to the window's own top-left corner (1, 1) - the
+          // window's own draggable Group (below) supplies its actual screen
+          // position via its own transform, so these no longer fold
+          // windowConfig.baseX/baseY in directly.
+          const yPosition = (yPositionValue === `top` ? 0 : windowConfig.baseHeight);
+          let xPosition = 1;
 
           switch (xPositionValue) {
           case `center`:
-            xPosition = (windowConfig.baseX + 1) + Math.floor((windowConfig.baseWidth / 2) - (txtLength / 2));
+            xPosition = 1 + Math.floor((windowConfig.baseWidth / 2) - (txtLength / 2));
             break;
           case `right`:
-            xPosition = (windowConfig.baseX + 1) + windowConfig.baseWidth - txtLength;
+            xPosition = 1 + windowConfig.baseWidth - txtLength;
             break;
           case `left`:
-            xPosition = (windowConfig.baseX + 1);
+            xPosition = 1;
             break;
           }
 
@@ -564,48 +568,94 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
     }
   }
 
+  /** @type {Group|undefined} everything belonging to this window (border,
+   * resize handle, title, its own fields) lives inside this one draggable
+   * Group, so dragging it moves all of that together, live. */
+  let windowGroup;
+
   if (windowFormat) {
-    // If this is a window, add the window CSS
-      if (windowConfig) {
-        const windowColor = colours[windowConfig.color] || colours.BLU;
+    if (windowConfig) {
+      windowGroup = new Konva.Group({
+        id: `${format.name}::window`,
+        x: windowConfig.x,
+        y: windowConfig.y,
+        draggable: !displayOnly,
+      });
 
-        // Windows have an opaque interior in a real 5250 session - they cover
-        // whatever's underneath, not just outline it. Matters most when this
-        // format is composed on top of another one that already drew content
-        // in the same area.
-        /** @type {Rect} */
-        const windowRect = new Konva.Rect({
-          id: windowFormat.name,
-          x: windowConfig.x,
-          y: windowConfig.y,
-          width: windowConfig.width,
-          height: windowConfig.height,
-          fill: colours.BLK,
-          stroke: windowColor,
-        });
+      windowGroup.on(`dragmove`, () => {
+        const snapped = snapToFixedGrid(windowGroup.x(), windowGroup.y());
+        windowGroup.x(snapped.x);
+        windowGroup.y(snapped.y);
+      });
 
-        layer.add(windowRect);
+      windowGroup.on(`dragend`, () => {
+        const absolute = windowGroup.absolutePosition();
+        const snapped = snapToFixedGrid(absolute.x, absolute.y);
+        windowGroup.absolutePosition(snapped);
+
+        // Inverts windowConfig.x/y's own widthInP(baseX)/heightInP(baseY) -
+        // NOT gridCordsToFieldCords, which assumes a field's "-1" convention
+        // (pixel = widthInP(pos - 1)), one character off from a window's own
+        // start-position convention (pixel = widthInP(base), no "-1").
+        const startX = Math.round(snapped.x / pxwPerChar);
+        const startY = Math.round(snapped.y / pxhPerLine);
+
+        sendWindowResize(format, startY, startX, windowConfig.baseHeight, windowConfig.baseWidth);
+      });
+
+      const windowColor = colours[windowConfig.color] || colours.BLU;
+
+      // Windows have an opaque interior in a real 5250 session - they cover
+      // whatever's underneath, not just outline it. Matters most when this
+      // format is composed on top of another one that already drew content
+      // in the same area.
+      /** @type {Rect} */
+      const windowRect = new Konva.Rect({
+        id: `windowBorder`,
+        x: 0,
+        y: 0,
+        width: windowConfig.width,
+        height: windowConfig.height,
+        fill: colours.BLK,
+        stroke: windowColor,
+      });
+
+      windowGroup.add(windowRect);
+
+      if (!displayOnly) {
+        windowGroup.add(createWindowResizeHandle(windowGroup, format, windowConfig));
       }
 
-      if (windowTitle) {
-        // Never editable/draggable on canvas - it's derived from the
-        // WDWTITLE keyword's value, not a real field of its own.
-        layer.add(getElement(windowTitle, true, windowFormat.name));
-      }
-
-      if (windowFormat.name !== format.name) {
-        renderSelectedFormat(layer, windowFormat, displayOnly);
-      }
+      layer.add(windowGroup);
     }
+
+    if (windowTitle) {
+      // Never independently editable/draggable on canvas - it's derived
+      // from the WDWTITLE keyword's value, not a real field of its own -
+      // but it's a child of the window's own group, so it still moves with
+      // the window when it's dragged.
+      windowGroup.add(getElement(windowTitle, true, windowFormat.name));
+    }
+
+    if (windowFormat.name !== format.name) {
+      // WINDOW(REF): this record borrows its size/border from windowFormat,
+      // but windowFormat's own fields still render layered into the same
+      // window bounds - into the same group (so they move with it too),
+      // not by re-deriving/re-drawing windowFormat's chrome a second time
+      // (already drawn above, from windowFormat's own keywords).
+      addFieldsToLayer(windowGroup, windowFormat, displayOnly, { x: -1, y: -1 });
+    }
+  }
 
   // TODO: make format optional
   if (format) {
     // A window record's own fields are coded relative to the window's own
     // top-left corner (row 1, column 1 = the window's first interior row/
-    // column), not the screen - shift them by the window's actual screen
-    // position so they land inside its border instead of wherever that
-    // relative position happens to fall on the full screen.
-    addFieldsToLayer(layer, format, displayOnly, getWindowOffset(format));
+    // column) - rendered as children of the window's own Group (whose
+    // transform supplies the screen position) instead of baking an absolute
+    // offset into each field, so dragging the window moves its fields and
+    // title along with it live.
+    addFieldsToLayer(windowGroup || layer, format, displayOnly, windowGroup ? { x: -1, y: -1 } : { x: 0, y: 0 });
   }
 }
 
@@ -662,6 +712,12 @@ function findTouchingFields(fields) {
 }
 
 function addFieldsToLayer(layer, format, displayOnly = false, offset = { x: 0, y: 0 }) {
+  // getElement's render offset (above) and its drag-end offset are different
+  // once a window's fields render inside its own draggable Group - see
+  // getElement's own doc comment for why. getWindowOffset is always the
+  // right one for drag-end, and a no-op {0, 0} for anything not a window.
+  const dragOffset = getWindowOffset(format);
+
   const subfileFormat = format.keywords.find(keyword => keyword.name === `SFLCTL`);
   // TODO: handle when subFileFormat is found
 
@@ -688,7 +744,7 @@ function addFieldsToLayer(layer, format, displayOnly = false, offset = { x: 0, y
 
           if (indicatorsSatisfied(field.conditions)) {
             subField.name = `${field.name}_${row}`;
-            const content = getElement(subField, true, subfileRecord.name, subfileConflicting.has(field), offset);
+            const content = getElement(subField, true, subfileRecord.name, subfileConflicting.has(field), offset, dragOffset);
             layer.add(content);
           }
         });
@@ -704,7 +760,7 @@ function addFieldsToLayer(layer, format, displayOnly = false, offset = { x: 0, y
   const conflicting = findTouchingFields(fields);
   fields.forEach(field => {
     if (indicatorsSatisfied(field.conditions)) {
-      const content = getElement(field, displayOnly, format.name, conflicting.has(field), offset);
+      const content = getElement(field, displayOnly, format.name, conflicting.has(field), offset, dragOffset);
       layer.add(content);
     }
   });
@@ -724,12 +780,19 @@ function renderSpecificField(fieldInfo) {
     existingField.destroy();
   }
 
-  const formatLayer = existingStage.findOne(`#${lastSelectedFormat}`);
+  const format = activeDocument.formats.find(f => f.name === lastSelectedFormat);
+  // A window's own fields are children of its own draggable Group (see
+  // renderSelectedFormat), not the top-level layer directly - find that
+  // instead, so an optimistically-updated field still moves with the window
+  // if it's dragged before the next full rerender.
+  const container = format && format.isWindow
+    ? existingStage.findOne(`#${lastSelectedFormat}::window`)
+    : existingStage.findOne(`#${lastSelectedFormat}`);
 
-  if (formatLayer) {
-    const format = activeDocument.formats.find(f => f.name === lastSelectedFormat);
-    const content = getElement(fieldInfo, false, lastSelectedFormat, false, getWindowOffset(format));
-    formatLayer.add(content);
+  if (container) {
+    const renderOffset = format && format.isWindow ? { x: -1, y: -1 } : { x: 0, y: 0 };
+    const content = getElement(fieldInfo, false, lastSelectedFormat, false, renderOffset, getWindowOffset(format));
+    container.add(content);
 
     return content;
   }
@@ -820,6 +883,94 @@ function createResizeHandle(group, fieldInfo, initialWidthPx) {
 }
 
 /**
+ * Rewrites a window's WINDOW keyword to the explicit
+ * (startY startX sizeY sizeX) form and sends it as a format-header update -
+ * shared by both the window-move and window-resize handlers below. Also how
+ * a WINDOW(*DFT ...) or WINDOW(REF) window becomes independently draggable/
+ * resizable going forward: touching it via drag/resize always writes the
+ * full explicit form, same as the runtime would have resolved it to.
+ * @param {RecordInfo} format
+ * @param {number} startY
+ * @param {number} startX
+ * @param {number} sizeY
+ * @param {number} sizeX
+ */
+function sendWindowResize(format, startY, startX, sizeY, sizeX) {
+  const newValue = `${startY} ${startX} ${sizeY} ${sizeX}`;
+  const hasWindowKeyword = format.keywords.some(keyword => keyword.name === `WINDOW`);
+
+  const newKeywords = format.keywords.map(keyword =>
+    keyword.name === `WINDOW` ? { ...keyword, value: newValue } : keyword
+  );
+  if (!hasWindowKeyword) {
+    newKeywords.push({ name: `WINDOW`, value: newValue, conditions: [] });
+  }
+
+  sendFormatHeaderUpdate(format.name, newKeywords);
+}
+
+/**
+ * A small draggable handle on a window's bottom-right corner that resizes
+ * it - both dimensions at once, snapped to the character grid, with a floor
+ * of 1 character/line. Invisible until hovered, same as a field's own
+ * length-resize handle.
+ * @param {Group} windowGroup the window's own draggable Konva group - bg is
+ *   looked up on it by id, same pattern as a field's own resize handle
+ * @param {RecordInfo} format
+ * @param {{baseX: number, baseY: number, width: number, height: number}} windowConfig
+ */
+function createWindowResizeHandle(windowGroup, format, windowConfig) {
+  const handleSize = 8;
+
+  const handle = new Konva.Rect({
+    id: `windowResizeHandle`,
+    x: windowConfig.width - handleSize,
+    y: windowConfig.height - handleSize,
+    width: handleSize,
+    height: handleSize,
+    fill: colours.WHT,
+    opacity: 0,
+    draggable: true,
+  });
+
+  handle.on(`mouseenter`, () => {
+    handle.opacity(0.4);
+    const stage = handle.getStage();
+    if (stage) { stage.container().style.cursor = `nwse-resize`; }
+  });
+  handle.on(`mouseleave`, () => {
+    handle.opacity(0);
+    const stage = handle.getStage();
+    if (stage) { stage.container().style.cursor = `default`; }
+  });
+
+  handle.on(`dragmove`, () => {
+    const snappedX = Math.max(pxwPerChar, Math.round(handle.x() / pxwPerChar) * pxwPerChar);
+    const snappedY = Math.max(pxhPerLine, Math.round(handle.y() / pxhPerLine) * pxhPerLine);
+    handle.x(snappedX);
+    handle.y(snappedY);
+
+    const border = windowGroup.findOne(`#windowBorder`);
+    if (border) {
+      border.width(snappedX + handleSize);
+      border.height(snappedY + handleSize);
+    }
+  });
+
+  handle.on(`dragend`, () => {
+    // widthInP has no "-1" adjustment, heightInP's does (see windowConfig's
+    // own construction in renderSelectedFormat) - inverted here to recover
+    // the DDS-coded size from the rendered pixel size.
+    const sizeX = Math.max(1, Math.round((handle.x() + handleSize) / pxwPerChar));
+    const sizeY = Math.max(1, Math.round((handle.y() + handleSize) / pxhPerLine) + 1);
+
+    sendWindowResize(format, windowConfig.baseY, windowConfig.baseX, sizeY, sizeX);
+  });
+
+  return handle;
+}
+
+/**
  * @param {FieldInfo} fieldInfo
  * @param {boolean} [displayOnly]
  * @param {string} [formatName] the record format this field belongs to, so its
@@ -827,11 +978,23 @@ function createResizeHandle(group, fieldInfo, initialWidthPx) {
  * @param {boolean} [hasWarning] outlines the field in red - it touches or
  *   overlaps another field/constant on the same row, which doesn't render
  *   correctly on a real 5250 display
- * @param {{x: number, y: number}} [offset] shifts a window's own field onto
- *   the screen - see the comment in renderSelectedFormat's addFieldsToLayer
- *   call for why this is needed. Zero for anything not inside a window.
+ * @param {{x: number, y: number}} [offset] a window's own field is rendered
+ *   as a child of that window's own draggable Konva Group (see
+ *   renderSelectedFormat) - its DDS-coded position is relative to the
+ *   window's own top-left corner already, and the group's own transform
+ *   supplies the window's screen position, so this is always the constant
+ *   {x: -1, y: -1} (the same "-1" conversion getElement always does, just
+ *   with no window-position-dependent shift needed on top of it). Zero for
+ *   anything not inside a window.
+ * @param {{x: number, y: number}} [dragOffset] Konva's absolutePosition()
+ *   (used when a drag ends, below) always resolves through every ancestor's
+ *   transform to the stage's own coordinate space, regardless of nesting -
+ *   so converting a post-drag position back into this field's DDS-relative
+ *   position needs the window's actual position-dependent offset, not the
+ *   constant one above. Defaults to `offset` (correct for anything not
+ *   inside a window, where both are {0, 0} anyway).
  */
-function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFormat, hasWarning = false, offset = { x: 0, y: 0 }) {
+function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFormat, hasWarning = false, offset = { x: 0, y: 0 }, dragOffset = offset) {
   const boxInfo = {
     id: elementId(formatName, fieldInfo.name),
     x: widthInP(fieldInfo.position.x - 1 + offset.x),
@@ -1008,7 +1171,7 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
       y: newCords.y
     });
 
-    const fieldCords = gridCordsToFieldCords(newCords.x, newCords.y, offset);
+    const fieldCords = gridCordsToFieldCords(newCords.x, newCords.y, dragOffset);
     fieldInfo.position.x = fieldCords.x;
     fieldInfo.position.y = fieldCords.y;
 

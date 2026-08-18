@@ -1606,7 +1606,9 @@ describe(`window title rendering (WDWTITLE)`, () => {
 
     sandbox.setWindowForFormat(`CONFIRMWIN`);
 
-    const titleGroup = getLayer().children.find((c: any) => c.config.id === `CONFIRMWIN::WINDOWTITLE`);
+    // A child of the window's own draggable group, not the layer directly -
+    // findOne searches recursively, so this doesn't care how deep it's nested.
+    const titleGroup = getLayer().findOne(`#CONFIRMWIN::WINDOWTITLE`);
     expect(titleGroup).toBeDefined();
     // Not editable/draggable - it's derived from the keyword, not a real field.
     expect(titleGroup.config.draggable).toBe(false);
@@ -1624,6 +1626,141 @@ describe(`window title rendering (WDWTITLE)`, () => {
 
     const titleGroup = getLayer().children.find((c: any) => c.config.id === `CONFIRMWIN::WINDOWTITLE`);
     expect(titleGroup).toBeUndefined();
+  });
+});
+
+describe(`window drag/resize`, () => {
+  const PX_PER_CHAR = 8;
+  const PX_PER_LINE = 20;
+  const HANDLE_SIZE = 8;
+
+  function captureLayer(sandbox: any) {
+    let capturedLayer: any;
+    const RealLayer = sandbox.Konva.Layer;
+    sandbox.Konva.Layer = class extends RealLayer {
+      constructor(c: any) { super(c); capturedLayer = this; }
+    };
+    return () => capturedLayer;
+  }
+
+  function modelWithWindowField() {
+    return {
+      formats: [{
+        name: `WIN1`, isWindow: true, windowReference: undefined,
+        windowSize: { x: 20, y: 3, width: 40, height: 8 },
+        keywords: [{ name: `WINDOW`, value: `3 20 8 40`, conditions: [] }],
+        fields: [
+          { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 3, y: 2 }, keywords: [], conditions: [] },
+        ],
+      }],
+    };
+  }
+
+  it(`renders the window's own group at its coded screen position, draggable`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithWindowField(), `dds.dspf`, false);
+    const getLayer = captureLayer(sandbox);
+
+    sandbox.setWindowForFormat(`WIN1`);
+
+    const windowGroup = getLayer().findOne(`#WIN1::window`);
+    expect(windowGroup).toBeDefined();
+    expect(windowGroup.config.x).toBe(20 * PX_PER_CHAR);
+    expect(windowGroup.config.y).toBe(3 * PX_PER_LINE);
+    expect(windowGroup.config.draggable).toBe(true);
+  });
+
+  it(`renders a window's own field relative to the window - group position + field position equals the old absolute pixel position`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithWindowField(), `dds.dspf`, false);
+    const getLayer = captureLayer(sandbox);
+
+    sandbox.setWindowForFormat(`WIN1`);
+
+    const windowGroup = getLayer().findOne(`#WIN1::window`);
+    const fieldGroup = getLayer().findOne(`#WIN1::FLD1`);
+    expect(fieldGroup).toBeDefined();
+
+    // field.position = {x: 3, y: 2}, window at {x: 20, y: 3} - the pre-refactor
+    // absolute pixel position was widthInP(3 - 1 + 19) / heightInP(2 - 1 + 2)
+    // (offset {19, 2} = windowSize - 1), i.e. column 21, line 3.
+    const absoluteX = windowGroup.config.x + fieldGroup.config.x;
+    const absoluteY = windowGroup.config.y + fieldGroup.config.y;
+    expect(absoluteX).toBe(21 * PX_PER_CHAR);
+    expect(absoluteY).toBe(3 * PX_PER_LINE);
+  });
+
+  it(`isn't draggable and offers no resize handle in a read-only (displayOnly) render`, () => {
+    const sandbox = loadWebui();
+    const model = modelWithWindowField();
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    const layer = new sandbox.Konva.Layer({});
+
+    sandbox.renderSelectedFormat(layer, model.formats[0], true);
+
+    const windowGroup = layer.findOne(`#WIN1::window`);
+    expect(windowGroup.config.draggable).toBe(false);
+    expect(windowGroup.findOne(`#windowResizeHandle`)).toBeUndefined();
+  });
+
+  it(`sends an updated WINDOW keyword with the new position after a move, keeping the current size`, () => {
+    const sandbox = loadWebui();
+    const model = modelWithWindowField();
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    const layer = new sandbox.Konva.Layer({});
+    sandbox.renderSelectedFormat(layer, model.formats[0], false);
+
+    const windowGroup = layer.findOne(`#WIN1::window`);
+    // Simulate a drag to a new position: column 25, line 5.
+    windowGroup.x(25 * PX_PER_CHAR);
+    windowGroup.y(5 * PX_PER_LINE);
+    windowGroup.trigger(`dragend`);
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `updateFormat`);
+    expect(sent.recordFormat).toBe(`WIN1`);
+    const windowKeyword = sent.newKeywords.find((k: any) => k.name === `WINDOW`);
+    expect(windowKeyword.value).toBe(`5 25 8 40`); // startY startX sizeY sizeX - size unchanged
+  });
+
+  it(`sends an updated WINDOW keyword with the new size after a resize, keeping the current position`, () => {
+    const sandbox = loadWebui();
+    const model = modelWithWindowField();
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    const layer = new sandbox.Konva.Layer({});
+    sandbox.renderSelectedFormat(layer, model.formats[0], false);
+
+    const windowGroup = layer.findOne(`#WIN1::window`);
+    const handle = windowGroup.findOne(`#windowResizeHandle`);
+    expect(handle).toBeDefined();
+
+    // Resize to 50 columns wide, 10 lines tall - inverting
+    // createWindowResizeHandle's own dragend formulas.
+    handle.x(50 * PX_PER_CHAR - HANDLE_SIZE);
+    handle.y((10 - 1) * PX_PER_LINE - HANDLE_SIZE);
+    handle.trigger(`dragend`);
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `updateFormat`);
+    const windowKeyword = sent.newKeywords.find((k: any) => k.name === `WINDOW`);
+    expect(windowKeyword.value).toBe(`3 20 10 50`); // position unchanged
+  });
+
+  it(`converts a *DFT/REF-style WINDOW keyword to the explicit form on the first drag`, () => {
+    const sandbox = loadWebui();
+    const model = modelWithWindowField();
+    // Not yet explicit - mirrors a WINDOW(*DFT ...) or WINDOW(REF) window.
+    model.formats[0].keywords = [{ name: `WINDOW`, value: `*DFT 8 40`, conditions: [] }];
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    const layer = new sandbox.Konva.Layer({});
+    sandbox.renderSelectedFormat(layer, model.formats[0], false);
+
+    const windowGroup = layer.findOne(`#WIN1::window`);
+    windowGroup.x(25 * PX_PER_CHAR);
+    windowGroup.y(5 * PX_PER_LINE);
+    windowGroup.trigger(`dragend`);
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `updateFormat`);
+    const windowKeyword = sent.newKeywords.find((k: any) => k.name === `WINDOW`);
+    expect(windowKeyword.value).toBe(`5 25 8 40`);
   });
 });
 
