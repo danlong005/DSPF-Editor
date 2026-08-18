@@ -6,6 +6,18 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-08-18
+
+### Added
+
+- `Cmd`/`Ctrl+Z` now undoes canvas edits (and `Cmd+Shift+Z`/`Ctrl+Y` redoes them) while focus is on the canvas - previously only worked with focus in the text editor, since a webview doesn't automatically forward keybindings to VS Code.
+- Windows can now be dragged and resized directly on the canvas, same as fields - drag the border to reposition it (border, title, and its own fields all move together), or drag the new handle in the bottom-right corner to resize it. Touching a `WINDOW(*DFT ...)` or `WINDOW(REF)` window this way converts it to the explicit `(startY startX sizeY sizeX)` form.
+
+### Fixed
+
+- Undo/redo (and any document change that didn't originate from the canvas itself, like typing directly in the source) only refreshed the sidebar, not the canvas - it now always fully rerenders so what's on screen actually matches the document.
+- The keyword editor's Conditions section (up to 3 OR'd groups of 3 indicators) could push the Confirm button off-screen - it's now collapsed by default, auto-expanding only when editing a keyword that already has a condition set.
+
 ## [0.2.1] - 2026-08-18
 
 ### Changed
