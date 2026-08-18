@@ -6,6 +6,16 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.3.2] - 2026-08-18
+
+### Added
+
+- A read-only "Command Keys" tab in the sidebar, listing every `CAxx`/`CFxx` command-key keyword in the file and which record format it's on - including a file-level command key (coded before any record, applying to every format), labelled "File level" instead of being silently skipped.
+
+### Fixed
+
+- In the Preview view, checking a subfile control format's (`SFLCTL`) checkbox now also checks its subfile record's checkbox - the control format was already drawing the subfile's fields on screen either way, so the subfile's own checkbox looked unchecked/omitted despite being visible. Unchecking the control format afterward doesn't force the subfile back off, since it might still be wanted composed on its own.
+
 ## [0.3.1] - 2026-08-18
 
 ### Other
