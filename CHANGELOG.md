@@ -6,6 +6,13 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-08-18
+
+### Changed
+
+- Rewrote the README as real usage documentation for the Design/Preview views, windows, subfiles, indicators, and printer files - it was still describing an early "IBM i Renderer" prototype.
+- Filled in the Marketplace description and added keywords/categories for discoverability.
+
 ## [0.2.0] - 2026-08-18
 
 ### Added
