@@ -6,14 +6,23 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-08-18
+
 ### Added
 
 - Printer file (`.prtf`/`.PRTF`) support: the Design and Preview views now open for printer-file source too. Vertical field placement is computed accurately from `PAGSIZ` and the `SPACEB`/`SKIPB`/`SPACEA`/`SKIPA` line-advance keywords, not guessed - matching how a real printer file lays out when a line-number column is left blank. File type is detected from the file extension, not VS Code's language ID, since another extension controls what language ID gets assigned to `.prtf` files.
 - The keyword combobox now includes `PAGSIZ`.
+- A field or keyword can now be conditioned by up to 9 indicators, coded as up to 3 OR'd groups of up to 3 AND'd indicators each - matching SDA/real DDS. Previously only the first 3 (AND-only) were read; anything past that, and the AND/OR relator column, was silently dropped. The keyword condition editor now offers 3 groups of 3 indicators, with an OR divider between them.
+- A "System user constant" button next to "System name constant", for the `*USER` keyword.
+- The Basic field panel's Position is now editable (X and Y), instead of read-only text - a more precise way to reposition a field than dragging.
+- An extension icon.
 
 ### Fixed
 
 - The Add Field and Display Type controls no longer offer printer-illegal options (`Input`/`Both`/`Hidden`) when editing a printer file - printer-file fields are output-only.
+- A canvas wider than its panel (a wide `PAGSIZ` printer page, or a large `DSPSIZ` alternate size) was centered, clipping both edges and hiding column 1 by default - it now always starts at the left edge.
+- Fields inside a `WINDOW` record are coded in DDS relative to the window's own top-left corner, not the screen - they were being rendered (and dragged) as if their coordinates were absolute, so a window positioned away from the screen's own top-left rendered its fields in the wrong place.
+- The drag handle used to resize a field's length covered almost the entire field when it was very narrow (e.g. 1 character wide), leaving no room to grab the field itself to move it - now capped at half the field's width.
 
 ## [0.1.1] - 2026-08-17
 
