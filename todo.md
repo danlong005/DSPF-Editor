@@ -4,20 +4,7 @@ Ideas gathered from researching other DSPF/DDS-related VS Code extensions
 (2026-08-18), ranked by value vs. effort. Not commitments - just what we
 want to keep in view.
 
-## 1. Hover/IntelliSense keyword docs in the raw source editor
-
-Contextual keyword completion and documentation-on-hover when editing the
-raw DDS text directly (independent of the canvas).
-
-- Our existing `DDS_KEYWORDS` list in `webui/main.js` (already used for the
-  canvas's keyword combobox) could seed the keyword list, but writing
-  per-keyword documentation text is the real work, not the plumbing.
-- Needs a real `CompletionItemProvider`/`HoverProvider` subsystem - the
-  biggest lift of this list.
-- Only worth prioritizing if people edit raw source as much as they use
-  the canvas.
-- Source: seen in Carbon/400.
-- Effort: large.
+Nothing currently queued - see below for ideas already ruled out.
 
 ## Explicitly not pursuing
 
@@ -33,6 +20,9 @@ raw DDS text directly (independent of the canvas).
   keywords by display-size name) or relies on an invented naming
   convention to pair two separate records as "the same window." Not
   worth the complexity/ambiguity for how rarely it's actually used.
+- **Hover/IntelliSense keyword docs in the raw source editor** (seen in
+  Carbon/400) - contextual completion/documentation when editing the raw
+  DDS text directly, independent of the canvas. Ruled out for now.
 
 ## Reference
 
