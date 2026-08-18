@@ -22,6 +22,11 @@ function cond(indicator: number, negate = false) {
   return { indicator, negate };
 }
 
+/** Wraps Conditionals into one AND-group - real DDS's `conditions` shape is ConditionGroup[], OR'd together. */
+function group(...indicators: ReturnType<typeof cond>[]) {
+  return { indicators };
+}
+
 /** Depth-first search for a FakeElement with a given dataset key, anywhere under root. */
 function findByDataFieldId(root: FakeElement, fieldId: string): FakeElement | undefined {
   if (root.dataset.fieldId === fieldId) { return root; }
@@ -38,18 +43,18 @@ describe(`indicatorsSatisfied`, () => {
     expect(sandbox.indicatorsSatisfied([])).toBe(true);
   });
 
-  it(`requires every listed indicator to be on (AND, not OR)`, () => {
+  it(`requires every indicator within a group to be on (AND)`, () => {
     const sandbox = loadWebui();
     const panel = sandbox.createIndicatorsPanel([30, 40]);
     toggleIndicatorCheckbox(panel, 30, true);
     // 40 stays off
 
-    expect(sandbox.indicatorsSatisfied([cond(30)])).toBe(true);
-    expect(sandbox.indicatorsSatisfied([cond(40)])).toBe(false);
-    expect(sandbox.indicatorsSatisfied([cond(30), cond(40)])).toBe(false);
+    expect(sandbox.indicatorsSatisfied([group(cond(30))])).toBe(true);
+    expect(sandbox.indicatorsSatisfied([group(cond(40))])).toBe(false);
+    expect(sandbox.indicatorsSatisfied([group(cond(30), cond(40))])).toBe(false);
 
     toggleIndicatorCheckbox(panel, 40, true);
-    expect(sandbox.indicatorsSatisfied([cond(30), cond(40)])).toBe(true);
+    expect(sandbox.indicatorsSatisfied([group(cond(30), cond(40))])).toBe(true);
   });
 
   it(`respects negation`, () => {
@@ -57,22 +62,54 @@ describe(`indicatorsSatisfied`, () => {
     const panel = sandbox.createIndicatorsPanel([50]);
 
     // Indicator off: a negated condition on it is satisfied.
-    expect(sandbox.indicatorsSatisfied([cond(50, true)])).toBe(true);
-    expect(sandbox.indicatorsSatisfied([cond(50, false)])).toBe(false);
+    expect(sandbox.indicatorsSatisfied([group(cond(50, true))])).toBe(true);
+    expect(sandbox.indicatorsSatisfied([group(cond(50, false))])).toBe(false);
 
     toggleIndicatorCheckbox(panel, 50, true);
-    expect(sandbox.indicatorsSatisfied([cond(50, true)])).toBe(false);
-    expect(sandbox.indicatorsSatisfied([cond(50, false)])).toBe(true);
+    expect(sandbox.indicatorsSatisfied([group(cond(50, true))])).toBe(false);
+    expect(sandbox.indicatorsSatisfied([group(cond(50, false))])).toBe(true);
   });
 
   it(`unchecking an indicator turns its conditions back off`, () => {
     const sandbox = loadWebui();
     const panel = sandbox.createIndicatorsPanel([60]);
     toggleIndicatorCheckbox(panel, 60, true);
-    expect(sandbox.indicatorsSatisfied([cond(60)])).toBe(true);
+    expect(sandbox.indicatorsSatisfied([group(cond(60))])).toBe(true);
 
     toggleIndicatorCheckbox(panel, 60, false);
-    expect(sandbox.indicatorsSatisfied([cond(60)])).toBe(false);
+    expect(sandbox.indicatorsSatisfied([group(cond(60))])).toBe(false);
+  });
+
+  it(`is satisfied if ANY group is satisfied (OR between groups)`, () => {
+    const sandbox = loadWebui();
+    const panel = sandbox.createIndicatorsPanel([30, 40]);
+    const conditions = [group(cond(30)), group(cond(40))];
+
+    expect(sandbox.indicatorsSatisfied(conditions)).toBe(false);
+
+    toggleIndicatorCheckbox(panel, 30, true);
+    expect(sandbox.indicatorsSatisfied(conditions)).toBe(true);
+
+    toggleIndicatorCheckbox(panel, 30, false);
+    toggleIndicatorCheckbox(panel, 40, true);
+    expect(sandbox.indicatorsSatisfied(conditions)).toBe(true);
+  });
+
+  it(`mixes AND within a group and OR between groups`, () => {
+    const sandbox = loadWebui();
+    const panel = sandbox.createIndicatorsPanel([30, 31, 40]);
+    const conditions = [group(cond(30), cond(31)), group(cond(40))];
+
+    toggleIndicatorCheckbox(panel, 30, true);
+    expect(sandbox.indicatorsSatisfied(conditions)).toBe(false); // first group incomplete, second not satisfied
+
+    toggleIndicatorCheckbox(panel, 31, true);
+    expect(sandbox.indicatorsSatisfied(conditions)).toBe(true); // first group now complete
+
+    toggleIndicatorCheckbox(panel, 30, false);
+    toggleIndicatorCheckbox(panel, 31, false);
+    toggleIndicatorCheckbox(panel, 40, true);
+    expect(sandbox.indicatorsSatisfied(conditions)).toBe(true); // second group satisfies the OR
   });
 });
 
@@ -84,16 +121,16 @@ describe(`getReferencedIndicators`, () => {
       formats: [
         {
           name: `FMT1`,
-          keywords: [{ name: `SFLCLR`, value: undefined, conditions: [cond(90)] }],
+          keywords: [{ name: `SFLCLR`, value: undefined, conditions: [group(cond(90))] }],
           fields: [
             {
               name: `FLD1`,
-              conditions: [cond(30)],
-              keywords: [{ name: `COLOR`, value: `RED`, conditions: [cond(30)] }],
+              conditions: [group(cond(30))],
+              keywords: [{ name: `COLOR`, value: `RED`, conditions: [group(cond(30))] }],
             },
             {
               name: `FLD2`,
-              conditions: [cond(10)],
+              conditions: [group(cond(10))],
               keywords: [],
             },
           ],
@@ -101,7 +138,7 @@ describe(`getReferencedIndicators`, () => {
         {
           name: `FMT2`,
           keywords: [],
-          fields: [{ name: `FLD3`, conditions: [cond(90)], keywords: [] }],
+          fields: [{ name: `FLD3`, conditions: [group(cond(90))], keywords: [] }],
         },
       ],
     };
@@ -109,6 +146,24 @@ describe(`getReferencedIndicators`, () => {
     sandbox.loadDDS(model, `dds.dspf`, false);
 
     expect(sandbox.getReferencedIndicators()).toEqual([10, 30, 90]);
+  });
+
+  it(`collects indicators from every OR'd group, not just the first`, () => {
+    const sandbox = loadWebui();
+
+    const model = {
+      formats: [
+        {
+          name: `FMT1`,
+          keywords: [],
+          fields: [{ name: `FLD1`, conditions: [group(cond(30)), group(cond(70))], keywords: [] }],
+        },
+      ],
+    };
+
+    sandbox.loadDDS(model, `dds.dspf`, false);
+
+    expect(sandbox.getReferencedIndicators()).toEqual([30, 70]);
   });
 
   it(`returns an empty list when nothing references any indicator`, () => {
@@ -203,7 +258,7 @@ describe(`getElement (canvas field rendering)`, () => {
       position: { x: 1, y: 1 },
       keywords: [
         { name: `COLOR`, value: `GRN`, conditions: [] },
-        { name: `COLOR`, value: `RED`, conditions: [cond(30)] },
+        { name: `COLOR`, value: `RED`, conditions: [group(cond(30))] },
       ],
     };
 
@@ -295,7 +350,7 @@ describe(`addFieldsToLayer field visibility`, () => {
       keywords: [],
       fields: [
         { name: `ALWAYS`, type: `A`, length: 1, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] },
-        { name: `ONLYIF80`, type: `A`, length: 1, decimals: 0, displayType: `output`, value: undefined, position: { x: 2, y: 1 }, keywords: [], conditions: [cond(80)] },
+        { name: `ONLYIF80`, type: `A`, length: 1, decimals: 0, displayType: `output`, value: undefined, position: { x: 2, y: 1 }, keywords: [], conditions: [group(cond(80))] },
       ],
     };
 
@@ -471,6 +526,46 @@ describe(`updateSelectedFieldSidebar - printer file Display Type restriction`, (
     const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
     const displayType = findByDataFieldId(sidebar, `displayType`);
     expect(displayType!.options.map((o: any) => o.value)).toEqual([`input`, `output`, `both`, `hidden`]);
+  });
+});
+
+describe(`updateSelectedFieldSidebar - editable Position`, () => {
+  it(`shows the field's current X/Y as editable inputs`, () => {
+    const sandbox = loadWebui();
+    const field = {
+      name: `FLD1`, displayType: `output`, type: `A`, length: 5, decimals: 0,
+      position: { x: 12, y: 7 }, keywords: [],
+    };
+    sandbox.updateSelectedFieldSidebar(field);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    expect(findByDataFieldId(sidebar, `positionX`)!.innerText).toBe(12);
+    expect(findByDataFieldId(sidebar, `positionY`)!.innerText).toBe(7);
+  });
+
+  it(`sends an updated, numeric position when edited, without disturbing the rest of the field`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields: [] }] }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const field = {
+      name: `FLD1`, displayType: `output`, type: `A`, length: 5, decimals: 0,
+      position: { x: 1, y: 1 }, keywords: [], conditions: [],
+    };
+    sandbox.updateSelectedFieldSidebar(field);
+
+    const sidebar = sandbox.document.getElementById(`fieldInfoSidebar`);
+    const positionX = findByDataFieldId(sidebar, `positionX`)!;
+    const positionY = findByDataFieldId(sidebar, `positionY`)!;
+    positionX.innerText = `20`;
+    positionY.innerText = `9`;
+    positionX.trigger(`blur`);
+
+    const sent = sandbox.postedMessages.find((m: any) => m.command === `updateField`);
+    expect(sent.fieldInfo.position).toEqual({ x: 20, y: 9 });
+    expect(typeof sent.fieldInfo.position.x).toBe(`number`);
+    expect(typeof sent.fieldInfo.position.y).toBe(`number`);
+    expect(sent.fieldInfo.name).toBe(`FLD1`);
   });
 });
 
@@ -798,7 +893,7 @@ describe(`setWindowForFormat error trapping`, () => {
             // Referenced indicator so the sidebar has an "Indicators" section
             // to render - proof the successful-render path was exercised
             // before the error path clears it back out.
-            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [{ indicator: 50, negate: false }] },
+            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [{ indicators: [{ indicator: 50, negate: false }] }] },
           ],
         },
       ],
@@ -916,7 +1011,7 @@ describe(`updatePreviewSidebar - Composed Formats/Indicators tabs`, () => {
           name: `FMT1`,
           keywords: [],
           fields: [
-            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [{ indicator: 50, negate: false }] },
+            { name: `FLD1`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [{ indicators: [{ indicator: 50, negate: false }] }] },
           ],
         },
         { name: `FMT2`, keywords: [], fields: [] },
@@ -1264,6 +1359,75 @@ describe(`editKeyword - uppercasing`, () => {
   });
 });
 
+describe(`editKeyword - condition groups (up to 3 OR'd groups of 3 AND'd indicators)`, () => {
+  function currentKeywordEditorGroup(sandbox: any): FakeElement {
+    const area = sandbox.document.getElementById(`keywordEditorArea`);
+    return area.children.find((el: FakeElement) => el.tagName === `VSCODE-FORM-GROUP`);
+  }
+
+  it(`builds one group per set of selected indicators, skipping an empty group left in between`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((newKeyword: any) => { saved = newKeyword; }, { name: `DSPATR`, value: `HI`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    // Group 0, slot 0
+    formGroup.querySelector(`#ind-0-0`).value = `10`;
+    // Group 1 left entirely blank (all still "None")
+    // Group 2, slot 0
+    formGroup.querySelector(`#ind-2-0`).value = `20`;
+    formGroup.querySelector(`#neg-2-0`).attributes.checked = `true`;
+
+    const confirmButton = formGroup.children[formGroup.children.length - 1];
+    confirmButton.onclick();
+
+    expect(saved.conditions).toEqual([
+      { indicators: [{ indicator: `10`, negate: false }] },
+      { indicators: [{ indicator: `20`, negate: true }] },
+    ]);
+  });
+
+  it(`builds a single group from multiple indicators picked within it (AND)`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((newKeyword: any) => { saved = newKeyword; }, { name: `DSPATR`, value: `HI`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    formGroup.querySelector(`#ind-0-0`).value = `10`;
+    formGroup.querySelector(`#ind-0-1`).value = `11`;
+
+    const confirmButton = formGroup.children[formGroup.children.length - 1];
+    confirmButton.onclick();
+
+    expect(saved.conditions).toEqual([
+      { indicators: [{ indicator: `10`, negate: false }, { indicator: `11`, negate: false }] },
+    ]);
+  });
+
+  it(`emits no conditions at all when nothing is selected in any group`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((newKeyword: any) => { saved = newKeyword; }, { name: `DSPATR`, value: `HI`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const confirmButton = formGroup.children[formGroup.children.length - 1];
+    confirmButton.onclick();
+
+    expect(saved.conditions).toEqual([]);
+  });
+
+  it(`pre-fills existing multi-group conditions when editing an already-conditioned keyword`, () => {
+    const sandbox = loadWebui();
+    const existing = { name: `DSPATR`, value: `HI`, conditions: [group(cond(10)), group(cond(20, true))] };
+    sandbox.editKeyword(() => {}, existing);
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    expect(formGroup.querySelector(`#ind-0-0`).value).toBe(`10`);
+    expect(formGroup.querySelector(`#ind-1-0`).value).toBe(`20`);
+    expect(formGroup.querySelector(`#neg-1-0`).checked).toBe(true);
+  });
+});
+
 describe(`uppercaseOutsideQuotes`, () => {
   it(`uppercases plain text with no quotes`, () => {
     const sandbox = loadWebui();
@@ -1327,7 +1491,7 @@ describe(`loadDDS - refreshing the Indicators tab after a non-rerendering update
     // Mirrors sendFieldUpdate's round-trip: the extension host reparses and
     // posts back an 'update' message (withRerender=false), since the field
     // itself was already updated optimistically on the client.
-    sandbox.loadDDS(fieldWithConditions([{ indicator: 30, negate: false }]), `dds.dspf`, false);
+    sandbox.loadDDS(fieldWithConditions([group(cond(30))]), `dds.dspf`, false);
 
     expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(true);
   });
@@ -1337,7 +1501,7 @@ describe(`loadDDS - refreshing the Indicators tab after a non-rerendering update
     sandbox.loadDDS(fieldWithConditions([]), `dds.dspf`, true);
     expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(false);
 
-    sandbox.loadDDS(fieldWithConditions([{ indicator: 30, negate: false }]), `dds.dspf`, false);
+    sandbox.loadDDS(fieldWithConditions([group(cond(30))]), `dds.dspf`, false);
 
     expect(indicatorsTabPresent(sandbox, `recordFormatSidebar`)).toBe(true);
   });
@@ -1540,5 +1704,25 @@ describe(`drag-to-resize handle`, () => {
     handle.trigger(`dragend`);
 
     expect(fieldInfo.length).toBe(4);
+  });
+
+  it(`shrinks the handle for a very narrow field, so some body remains grabbable to move it`, () => {
+    const sandbox = loadWebui();
+    const narrowField = field({ length: 1 });
+    const group = sandbox.getElement(narrowField, false, `FMT1`);
+    const handle = group.findOne(`#resizeHandle`);
+
+    // A 1-char field is PX_PER_CHAR px wide - a fixed 6px handle would cover
+    // almost the whole thing, leaving no body to grab for a move instead of
+    // a resize. Capped at half the field's width instead.
+    expect(handle.width()).toBe(4);
+    expect(handle.x()).toBe(4); // leaves the left half of the field as body
+  });
+
+  it(`keeps the normal 6px handle for a field wide enough not to need shrinking`, () => {
+    const sandbox = loadWebui();
+    const group = sandbox.getElement(field({ length: 10 }), false, `FMT1`);
+    const handle = group.findOne(`#resizeHandle`);
+    expect(handle.width()).toBe(6);
   });
 });

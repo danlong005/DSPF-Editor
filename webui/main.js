@@ -174,13 +174,18 @@ let activeIndicators = new Set();
 let recordFormatSidebarTabIndex = 0;
 
 /**
- * @param {import('./dspf.d.ts').Conditional[]} conditions
+ * DDS's real model: a field/keyword's conditions are OR'd-together
+ * AND-groups (up to 3 groups, via continuation lines - see
+ * DisplayFile.appendConditionLine) - satisfied if ANY one group has ALL of
+ * its own indicators satisfied.
+ * @param {import('./dspf.d.ts').ConditionGroup[]} conditions
  */
 function indicatorsSatisfied(conditions) {
-  // Only AND is supported: the DDS AND/OR relator column between condition
-  // groups isn't parsed yet (see DisplayFile.parseConditionals), so every
-  // condition on a field/keyword is treated as required together.
-  return conditions.every(cond => activeIndicators.has(cond.indicator) !== cond.negate);
+  if (conditions.length === 0) { return true; }
+
+  return conditions.some(group =>
+    group.indicators.every(cond => activeIndicators.has(cond.indicator) !== cond.negate)
+  );
 }
 
 /**
@@ -190,7 +195,7 @@ function getReferencedIndicators() {
   /** @type {Set<number>} */
   const indicators = new Set();
 
-  const collect = (conditions) => conditions.forEach(c => indicators.add(c.indicator));
+  const collect = (conditions) => conditions.forEach(group => group.indicators.forEach(c => indicators.add(c.indicator)));
 
   (activeDocument?.formats || []).forEach(format => {
     format.keywords.forEach(keyword => collect(keyword.conditions));
@@ -735,7 +740,12 @@ function elementId(formatName, fieldName) {
  * @param {number} initialWidthPx
  */
 function createResizeHandle(group, fieldInfo, initialWidthPx) {
-  const handleWidth = 6;
+  // A fixed 6px handle on a very narrow field (e.g. 1 character, ~8px wide)
+  // covers almost the whole thing, leaving no room to grab the field's body
+  // to move it instead of resize it. Capping the handle at half the field's
+  // width guarantees some body is always left to grab, while leaving normal-
+  // width fields (roughly 2+ characters) exactly as they were.
+  const handleWidth = Math.max(2, Math.min(6, Math.floor(initialWidthPx / 2)));
 
   const handle = new Konva.Rect({
     id: `resizeHandle`,
@@ -1672,7 +1682,10 @@ function updateSelectedFieldSidebar(fieldInfo) {
     );
   }
 
-  properties.push({ label: `Position`, value: `${fieldInfo.position.x}, ${fieldInfo.position.y}` });
+  properties.push(
+    { label: `Position X`, value: fieldInfo.position.x, id: `positionX` },
+    { label: `Position Y`, value: fieldInfo.position.y, id: `positionY` },
+  );
 
   if (fieldInfo.type) {
     properties.push(
@@ -1694,9 +1707,19 @@ function updateSelectedFieldSidebar(fieldInfo) {
       html: createValuesPanel(`properties-${fieldInfo.name}`, properties, (newProps) => {
         const originalFieldName = fieldInfo.name;
 
+        // position.x/y are nested, not flat like the rest of newProps - pull
+        // them out and coerce to numbers (everything from collectValues() is
+        // a string) so downstream arithmetic (e.g. findTouchingFields' `+`)
+        // doesn't silently fall back to string concatenation.
+        const { positionX, positionY, ...rest } = newProps;
+
         fieldInfo = {
           ...fieldInfo,
-          ...newProps
+          ...rest,
+          position: {
+            x: positionX !== undefined ? Number(positionX) : fieldInfo.position.x,
+            y: positionY !== undefined ? Number(positionY) : fieldInfo.position.y,
+          },
         };
 
         sendFieldUpdate(lastSelectedFormat, originalFieldName, fieldInfo);
@@ -2085,11 +2108,17 @@ function createKeywordPanel(id, inputKeywords, onUpdate) {
         value: keyword,
         description: keyword.value,
         actions,
-        subItems: keyword.conditions.map(c => ({
-          label: String(c.indicator),
-          description: c.negate ? `Negated` : undefined,
-          icons
-        })),
+        // A plain "OR" chip between groups so the AND/OR structure is
+        // visible at a glance without opening the editor - indicators
+        // within a group are AND'd, groups themselves are OR'd.
+        subItems: keyword.conditions.flatMap((group, groupIndex) => [
+          ...(groupIndex > 0 ? [{ label: `OR`, icons }] : []),
+          ...group.indicators.map(c => ({
+            label: String(c.indicator),
+            description: c.negate ? `Negated` : undefined,
+            icons
+          })),
+        ]),
       };
     });
   };
@@ -2424,20 +2453,37 @@ function editKeyword(onUpdate, keyword) {
   group.appendChild(createLabel(`Value`, `value`));
   group.appendChild(createInputField(`value`, keyword ? (keyword.value || ``) : ``));
 
-  group.appendChild(createLabel(`Indicator 1`, `ind1`));
-  group.appendChild(createIndicatorSelect(`ind1`, keyword ? keyword.conditions[0]?.indicator : undefined));
+  // Real DDS conditions a field/keyword with up to 3 OR'd groups (each an
+  // AND of up to 3 indicators, via continuation lines) - 3x3 covers the
+  // vast majority of real DDS (parsing/rendering still supports more than
+  // this if a file happens to have it, this cap is purely about keeping
+  // the editing form a reasonable size).
+  const GROUP_COUNT = 3;
+  const INDICATORS_PER_GROUP = 3;
+  const existingGroups = keyword ? keyword.conditions : [];
 
-  group.appendChild(createCheckbox(`neg1`, `Negate`, keyword ? keyword.conditions[0]?.negate : undefined));
+  for (let g = 0; g < GROUP_COUNT; g++) {
+    if (g > 0) {
+      const orLabel = document.createElement(`vscode-label`);
+      orLabel.innerText = `OR`;
+      orLabel.style.marginTop = `1em`;
+      orLabel.style.fontWeight = `600`;
+      orLabel.style.opacity = `0.7`;
+      group.appendChild(orLabel);
+    }
 
-  group.appendChild(createLabel(`Indicator 2`, `ind2`));
-  group.appendChild(createIndicatorSelect(`ind2`, keyword ? keyword.conditions[1]?.indicator : undefined));
+    const existingIndicators = existingGroups[g]?.indicators || [];
 
-  group.appendChild(createCheckbox(`neg2`, `Negate`, keyword ? keyword.conditions[1]?.negate : undefined));
+    for (let s = 0; s < INDICATORS_PER_GROUP; s++) {
+      const indId = `ind-${g}-${s}`;
+      const negId = `neg-${g}-${s}`;
+      const existing = existingIndicators[s];
 
-  group.appendChild(createLabel(`Indicator 3`, `ind3`));
-  group.appendChild(createIndicatorSelect(`ind3`, keyword ? keyword.conditions[2]?.indicator : undefined));
-
-  group.appendChild(createCheckbox(`neg3`, `Negate`, keyword ? keyword.conditions[2]?.negate : undefined));
+      group.appendChild(createLabel(`Indicator ${g * INDICATORS_PER_GROUP + s + 1}`, indId));
+      group.appendChild(createIndicatorSelect(indId, existing?.indicator));
+      group.appendChild(createCheckbox(negId, `Negate`, existing?.negate));
+    }
+  }
 
   const button = document.createElement(`vscode-button`);
   button.setAttribute(`icon`, `check`);
@@ -2454,41 +2500,34 @@ function editKeyword(onUpdate, keyword) {
     // (e.g. WDWTITLE's title) - leave that text's case alone.
     const keywordValue = uppercaseOutsideQuotes(group.querySelector(`#value`).value || ``);
 
-    const ind1 = group.querySelector(`#ind1`).value;
-    const neg1 = group.querySelector(`#neg1`).checked;
+    /** @type {import('./dspf.d.ts').ConditionGroup[]} */
+    const conditions = [];
 
-    const ind2 = group.querySelector(`#ind2`).value;
-    const neg2 = group.querySelector(`#neg2`).checked;
+    for (let g = 0; g < GROUP_COUNT; g++) {
+      /** @type {import('./dspf.d.ts').Conditional[]} */
+      const indicators = [];
 
-    const ind3 = group.querySelector(`#ind3`).value;
-    const neg3 = group.querySelector(`#neg3`).checked;
+      for (let s = 0; s < INDICATORS_PER_GROUP; s++) {
+        const ind = group.querySelector(`#ind-${g}-${s}`).value;
+        const neg = group.querySelector(`#neg-${g}-${s}`).checked;
+
+        if (ind !== `None`) {
+          indicators.push({ indicator: ind, negate: neg });
+        }
+      }
+
+      // Skip an empty group entirely - e.g. leaving group 2 blank while
+      // using groups 1 and 3 shouldn't emit a meaningless empty OR'd group.
+      if (indicators.length > 0) {
+        conditions.push({ indicators });
+      }
+    }
 
     const newKeyword = {
       name: keywordName,
       value: keywordValue ? keywordValue : undefined,
-      conditions: []
+      conditions
     };
-
-    if (ind1 !== `None`) {
-      newKeyword.conditions.push({
-        indicator: ind1,
-        negate: neg1
-      });
-    }
-
-    if (ind2 !== `None`) {
-      newKeyword.conditions.push({
-        indicator: ind2,
-        negate: neg2
-      });
-    }
-
-    if (ind3 !== `None`) {
-      newKeyword.conditions.push({
-        indicator: ind3,
-        negate: neg3
-      });
-    }
 
     onUpdate(newKeyword);
   };

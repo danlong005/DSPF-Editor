@@ -26,6 +26,7 @@
      A            TIMECST        8T 0O  5 68
      A                                      TIME
      A                                      TIMFMT(*ISO)
+
      A          R CUSTOMER
      A            RECKEY         4A  H  1  1
      A                                  4  2'Customer #:'

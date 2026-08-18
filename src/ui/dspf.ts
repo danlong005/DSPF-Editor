@@ -206,9 +206,7 @@ export class DisplayFile {
                   break;
               }
 
-              this.currentField.conditions.push(
-                ...DisplayFile.parseConditionals(conditionals)
-              );
+              DisplayFile.appendConditionLine(this.currentField.conditions, conditionals);
             }
             this.HandleKeywords(keywords, conditionals);
           }
@@ -221,9 +219,7 @@ export class DisplayFile {
                 this.currentField.length = this.currentField.value.length;
                 this.currentField.displayType = `const`;
 
-                this.currentField.conditions.push(
-                  ...DisplayFile.parseConditionals(conditionals)
-                );
+                DisplayFile.appendConditionLine(this.currentField.conditions, conditionals);
               }
             }
             this.HandleKeywords(keywords, conditionals);
@@ -336,9 +332,6 @@ export class DisplayFile {
 
     let conditionals: Conditional[] = [];
 
-    //TODO: something with condition
-    //const condition = conditionColumns.substring(0, 1); //A (and) or O (or)
-
     let current = "";
     let negate = false;
     let indicator = 0;
@@ -361,7 +354,47 @@ export class DisplayFile {
     return conditionals;
   }
 
-  static parseKeywords(keywordStrings: string[], conditionalStrings?: { [line: number]: string }) {
+  /**
+   * Column 1 of the conditioning-indicator columns is the AND/OR relator
+   * between this line's indicator group and whatever group came before it
+   * (blank/'A' continues the current AND-group, 'O' starts a new OR'd
+   * group) - real DDS, up to 9 indicators per field/keyword via up to 3
+   * physical lines of up to 3 indicators each.
+   */
+  static parseConditionalLine(conditionColumns: string): { relator: `A` | `O`, indicators: Conditional[] } {
+    return {
+      relator: conditionColumns[0] === `O` ? `O` : `A`,
+      indicators: DisplayFile.parseConditionals(conditionColumns),
+    };
+  }
+
+  /**
+   * Folds one physical line's conditioning columns into an in-progress
+   * ConditionGroup[] - a fresh group on 'O' (or if there's no group yet,
+   * since a leading 'O' is illegal DDS and is treated as blank), otherwise
+   * extended onto the current (AND'd) group. A line with no indicators at
+   * all contributes nothing (covers blank continuation lines cleanly).
+   */
+  static appendConditionLine(groups: ConditionGroup[], conditionColumns: string): void {
+    const { relator, indicators } = DisplayFile.parseConditionalLine(conditionColumns);
+    if (indicators.length === 0) { return; }
+
+    if (relator === `O` || groups.length === 0) {
+      groups.push({ indicators });
+    } else {
+      groups[groups.length - 1].indicators.push(...indicators);
+    }
+  }
+
+  /**
+   * @param firstConditionalLine The first conditioningStrings line a
+   *   keyword is allowed to claim - for a FIELD's keywords this is 2, since
+   *   line 1 is always the field's own definition line and its conditioning
+   *   columns belong to the field itself (see FieldInfo.handleKeywords),
+   *   never to a keyword. A record has no such reserved line, so its
+   *   keywords (see RecordInfo.handleKeywords) start at 1.
+   */
+  static parseKeywords(keywordStrings: string[], conditionalStrings?: { [line: number]: string }, firstConditionalLine: number = 1) {
     let result: { value: string, keywords: Keyword[], conditions: Conditional[] } = {
       value: ``,
       keywords: [],
@@ -380,6 +413,17 @@ export class DisplayFile {
       let word = ``;
       let innerValue = ``;
       let inString = false;
+
+      // A keyword's conditioning can span multiple physical lines - unlike
+      // a field's own conditioning (coded after its definition line), a
+      // keyword's indicator-only continuation lines come BEFORE the line
+      // that finally carries its name/value, so they're accumulated here
+      // and attached whenever a keyword name completes. Not reset on every
+      // keyword - several short keywords coded on the very same physical
+      // line all share that one line's conditioning columns, matching real
+      // DDS (only reset when a newline is actually crossed).
+      let pendingConditions: ConditionGroup[] = [];
+      let lastFoldedLine = firstConditionalLine - 1;
 
       for (let i = 0; i < value.length; i++) {
         switch (value[i]) {
@@ -428,12 +472,22 @@ export class DisplayFile {
               }
             } else {
               if (word.length > 0) {
-                let conditionals = conditionalStrings ? conditionalStrings[conditionalLine] : undefined;
+                // Fold in every conditioning line since the last keyword
+                // completed (including this one) - covers any indicator-
+                // only continuation lines that preceded this keyword's own.
+                for (let ln = lastFoldedLine + 1; ln <= conditionalLine; ln++) {
+                  const line = conditionalStrings ? conditionalStrings[ln] : undefined;
+                  if (line) { DisplayFile.appendConditionLine(pendingConditions, line); }
+                }
+                lastFoldedLine = conditionalLine;
 
                 result.keywords.push({
                   name: word.toUpperCase(),
                   value: innerValue.length > 0 ? innerValue : undefined,
-                  conditions: conditionals ? DisplayFile.parseConditionals(conditionals) : []
+                  // Independent copy per keyword - several keywords coded on
+                  // the same line all read from the same pendingConditions,
+                  // and it's reused (not replaced) until the next newline.
+                  conditions: pendingConditions.map(group => ({ indicators: group.indicators.slice() })),
                 });
 
                 word = ``;
@@ -441,7 +495,10 @@ export class DisplayFile {
               }
             }
 
-            if (value[i] === newLineMark) { conditionalLine += 1; }
+            if (value[i] === newLineMark) {
+              conditionalLine += 1;
+              pendingConditions = [];
+            }
             break;
           default:
             if (inBrackets > 0 || inString) { innerValue += value[i]; }
@@ -454,33 +511,48 @@ export class DisplayFile {
     return result;
   }
 
-  private static conditionalGroups(conditions: Conditional[]) {
-    return conditions.reduce((acc, curr, index) => {
-      if (index % 3 === 0) {
-        acc.push([curr]);
-      } else {
-        acc[acc.length - 1].push(curr);
+  /**
+   * Renders a ConditionGroup[] into DDS conditioning-indicator column
+   * strings (10 chars each: 1 relator + up to 3 indicators of 3 chars) -
+   * one per physical line needed. A group with more than 3 indicators
+   * chunks onto several lines; only a group's own FIRST physical line
+   * carries the 'O' relator (a group's own continuation is still the same
+   * AND'd group). The first returned string is meant to sit inline with
+   * the field/keyword's own text (its relator is always blank - the first
+   * group is never itself OR'd to anything); every string after that
+   * becomes its own continuation line.
+   */
+  private static conditionLines(groups: ConditionGroup[]): string[] {
+    const lines: string[] = [];
+
+    groups.forEach((group, groupIndex) => {
+      for (let i = 0; i < group.indicators.length; i += 3) {
+        const chunk = group.indicators.slice(i, i + 3);
+        const relator = (groupIndex > 0 && i === 0) ? `O` : ` `;
+        const indicatorColumns = chunk.map(c => `${c.negate ? `N` : ` `}${String(c.indicator).padStart(2, `0`)}`).join(``).padEnd(9);
+        lines.push(`${relator}${indicatorColumns}`);
       }
-      return acc;
-    }, [] as Conditional[][]);
+    });
+
+    return lines.length > 0 ? lines : [``.padEnd(10)];
   }
 
   public static getLinesForKeyword(keyword: Keyword): string[] {
     const lines: string[] = [];
 
-    // Convert array into groups of three
-    const condition = this.conditionalGroups(keyword.conditions);
+    const conditions = DisplayFile.conditionLines(keyword.conditions);
 
-    const firstConditions = condition[0] || [];
-    const conditionStrings = firstConditions.map(c => `${c.negate ? 'N' : ' '}${c.indicator}`).join('').padEnd(9);
-
-    lines.push(`     A ${conditionStrings}                            ${keyword.name}${keyword.value ? `(${keyword.value})` : ``}`);
-
-    for (let g = 1; g < condition.length; g++) {
-      const group = condition[g];
-      const conditionStrings = group.map(c => `${c.negate ? 'N' : ' '}${c.indicator}`).join('');
-      lines.push(`     A ${conditionStrings}`);
+    // Unlike a field's own conditioning (coded after its definition line),
+    // a keyword's indicator-only continuation lines come BEFORE the line
+    // that finally carries its name/value - real DDS convention, and what
+    // parseKeywords' pendingConditions accumulator expects when reading it
+    // back. Only the LAST condition line sits inline with the keyword text.
+    for (let i = 0; i < conditions.length - 1; i++) {
+      lines.push(`     A${conditions[i]}`);
     }
+
+    const lastCondition = conditions[conditions.length - 1];
+    lines.push(`     A${lastCondition}                            ${keyword.name}${keyword.value ? `(${keyword.value})` : ``}`);
 
     return lines;
   }
@@ -500,22 +572,27 @@ export class DisplayFile {
     const y = String(field.position.y).padStart(3, ` `);
     const displayType = FIELD_TYPE[field.displayType!];
 
-    // Convert array into groups of three
-    const condition = this.conditionalGroups(field.conditions);
-    const firstConditions = condition[0] || [];
-    const conditionStrings = firstConditions.map(c => `${c.negate ? 'N' : ' '}${c.indicator}`).join('').padEnd(9);
+    // A field's own conditioning (as opposed to a keyword's) is always a
+    // single line, up to 3 indicators, one AND-group - unlike keywords, a
+    // field has no unambiguous way to distinguish "a continuation of the
+    // field's own conditions" from "a leading continuation for its first
+    // keyword's conditions", since both would sit in the exact same place
+    // (right after the field's definition line, before any keyword). So
+    // parse() never recognizes more than this one line for a field, and
+    // this only ever needs to emit that one line back.
+    const conditionColumns = DisplayFile.conditionLines(field.conditions)[0];
 
     if (field.displayType === `const`) {
       const value = field.value;
       newLines.push(
-        `     A ${conditionStrings}                      ${y}${x}'${value}'`,
+        `     A${conditionColumns}                      ${y}${x}'${value}'`,
       );
     } else if (displayType && field.name) {
       const definitionType = field.type;
       const length = String(field.length).padStart(5);
       const decimals = (field.type !== `A` ? String(field.decimals) : ``).padStart(2);
       newLines.push(
-        `     A ${conditionStrings}  ${field.name.padEnd(10)} ${length}${definitionType}${decimals}${displayType}${y}${x}`,
+        `     A${conditionColumns}  ${field.name.padEnd(10)} ${length}${definitionType}${decimals}${displayType}${y}${x}`,
       );
     }
 
@@ -581,7 +658,6 @@ export class DisplayFile {
     }
 
     for (const keyword of keywords) {
-      // TODO: support conditions
       lines.push(...DisplayFile.getLinesForKeyword(keyword));
     }
 
@@ -741,7 +817,7 @@ export class RecordInfo {
   }
 }
 
-export interface Keyword { name: string, value?: string, conditions: Conditional[] };
+export interface Keyword { name: string, value?: string, conditions: ConditionGroup[] };
 
 export type DisplayType = "input" | "output" | "both" | "const" | "hidden";
 
@@ -757,13 +833,16 @@ export class FieldInfo {
    * DisplayFile.assignPrinterLines() it may compute this field's line. */
   public needsPrinterLine: boolean = false;
   public keywordStrings: { keywordLines: string[], conditionalLines: { [lineIndex: number]: string } } = { keywordLines: [], conditionalLines: {} };
-  public conditions: Conditional[] = [];
+  public conditions: ConditionGroup[] = [];
   public keywords: Keyword[] = [];
 
   constructor(public startRange: number, public name?: string) {}
 
   handleKeywords() {
-    const data = DisplayFile.parseKeywords(this.keywordStrings.keywordLines, this.keywordStrings.conditionalLines);
+    // Line 1 is always this field's own definition line - its conditioning
+    // columns belong to the field (see DisplayFile.parse's appendConditionLine
+    // call for the field itself), not to whatever keyword comes first.
+    const data = DisplayFile.parseKeywords(this.keywordStrings.keywordLines, this.keywordStrings.conditionalLines, 2);
 
     this.keywords.push(...data.keywords);
 
@@ -775,5 +854,11 @@ export class FieldInfo {
 
 export interface Conditional {
   indicator: number,
-  negate: boolean  
+  negate: boolean
+}
+
+/** One AND-group of indicators - real DDS ORs these together, up to 3
+ * groups (via continuation lines), 3 indicators AND'd within each. */
+export interface ConditionGroup {
+  indicators: Conditional[]
 }

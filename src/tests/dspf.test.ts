@@ -75,7 +75,7 @@ describe('DisplayFile tests', () => {
     expect(DSPATR?.value).toBe(`PR`);
     expect(DSPATR?.conditions.length).toBe(1);
 
-    const cond = DSPATR?.conditions[0];
+    const cond = DSPATR?.conditions[0].indicators[0];
     expect(cond).toBeDefined();
     expect(cond?.indicator).toBe(20);
     expect(cond?.negate).toBeFalsy();
@@ -327,14 +327,15 @@ describe('DisplayFile tests', () => {
  * (Y) 38-41, position (X) 41-44, keywords/literal from 44 on.
  */
 function ddsLine(opts: {
-  recordIndicator?: string, name?: string, len?: string, type?: string,
+  recordIndicator?: string, cond?: string, name?: string, len?: string, type?: string,
   dec?: string, inout?: string, y?: string, x?: string, keywords?: string,
 }): string {
-  const { recordIndicator = ` `, name = ``, len = ``, type = ``, dec = ``, inout = ` `, y = ``, x = ``, keywords = `` } = opts;
+  const { recordIndicator = ` `, cond = ``, name = ``, len = ``, type = ``, dec = ``, inout = ` `, y = ``, x = ``, keywords = `` } = opts;
   const chars: string[] = [];
   const put = (start: number, str: string) => { for (let i = 0; i < str.length; i++) { chars[start + i] = str[i]; } };
 
   put(0, `     A`);
+  put(6, cond.padEnd(10));
   chars[16] = recordIndicator;
   put(18, name.padEnd(10));
   put(29, len.padStart(5));
@@ -520,5 +521,137 @@ describe(`planLineInsertion - new content always starts on its own line`, () => 
   it(`joins multiple new lines with exactly one trailing newline, not one per line plus an extra`, () => {
     const plan = planLineInsertion(5, true, false, 5, [`     A            FLD1          10A  I  1  1`, `     A                                      COLOR(BLU)`]);
     expect(plan.text).toBe(`     A            FLD1          10A  I  1  1\n     A                                      COLOR(BLU)\n`);
+  });
+});
+
+/** Builds a 10-char conditioning-indicator columns string (1 relator + up to 3 "[N]nn" slots). */
+function condCols(relator: `A` | `O` | ` `, indicators: { num: number, negate?: boolean }[]): string {
+  let s = relator;
+  for (let i = 0; i < 3; i++) {
+    const ind = indicators[i];
+    s += ind ? `${ind.negate ? `N` : ` `}${String(ind.num).padStart(2, `0`)}` : `   `;
+  }
+  return s;
+}
+
+describe(`conditioning indicators (AND/OR groups)`, () => {
+  it(`parses a single line's 1-3 indicators (no relator) as one AND-group - the pre-existing common case`, () => {
+    const lines = [
+      ddsLine({ recordIndicator: `R`, name: `FMT1` }),
+      ddsLine({ name: `FLD1`, type: `A`, len: `5`, inout: `O`, x: `1`, y: `1` }),
+      ddsLine({ cond: condCols(` `, [{ num: 20 }]), keywords: `DSPATR(HI)` }),
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const field = dds.formats.find(f => f.name === `FMT1`)!.fields[0];
+    expect(field.keywords[0].conditions).toEqual([{ indicators: [{ indicator: 20, negate: false }] }]);
+  });
+
+  it(`a field's own conditioning is always a single line (up to 3 indicators) - unlike a keyword, it has no continuation`, () => {
+    // A conditioning-only line right after a field's definition line is
+    // structurally indistinguishable from a leading continuation for the
+    // field's first keyword (both sit in the exact same place), so DDS
+    // resolves it by convention: it always belongs to the upcoming keyword,
+    // never the field itself.
+    const lines = [
+      ddsLine({ recordIndicator: `R`, name: `FMT1` }),
+      ddsLine({ cond: condCols(` `, [{ num: 5 }, { num: 6 }]), name: `FLD1`, type: `A`, len: `5`, inout: `O`, x: `1`, y: `1` }),
+      ddsLine({ cond: condCols(`O`, [{ num: 7 }]) }), // NOT a field-condition continuation
+      ddsLine({ keywords: `COLOR(BLU)` }),
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const field = dds.formats.find(f => f.name === `FMT1`)!.fields[0];
+    expect(field.conditions).toEqual([{ indicators: [{ indicator: 5, negate: false }, { indicator: 6, negate: false }] }]);
+    expect(field.keywords[0].conditions).toEqual([{ indicators: [{ indicator: 7, negate: false }] }]);
+  });
+
+  it(`treats a conditioning-only line as belonging to the NEXT keyword once the field already has one, not the field itself`, () => {
+    const lines = [
+      ddsLine({ recordIndicator: `R`, name: `FMT1` }),
+      ddsLine({ name: `FLD1`, type: `A`, len: `5`, inout: `O`, x: `1`, y: `1` }),
+      ddsLine({ keywords: `COLOR(BLU)` }),
+      ddsLine({ cond: condCols(`O`, [{ num: 9 }]) }), // leading continuation for the NEXT keyword
+      ddsLine({ keywords: `DSPATR(HI)` }),
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const field = dds.formats.find(f => f.name === `FMT1`)!.fields[0];
+    expect(field.conditions).toEqual([]); // untouched by the later conditioning-only line
+    expect(field.keywords[0].conditions).toEqual([]); // COLOR
+    expect(field.keywords[1].conditions).toEqual([{ indicators: [{ indicator: 9, negate: false }] }]); // DSPATR
+  });
+
+  it(`folds multiple indicator-only lines (>3 indicators via a continuation within the same AND-group) into one keyword`, () => {
+    const lines = [
+      ddsLine({ recordIndicator: `R`, name: `FMT1` }),
+      ddsLine({ name: `FLD1`, type: `A`, len: `5`, inout: `O`, x: `1`, y: `1` }),
+      ddsLine({ keywords: `COLOR(BLU)` }),
+      ddsLine({ cond: condCols(` `, [{ num: 10 }, { num: 11 }, { num: 12 }]) }),
+      ddsLine({ cond: condCols(` `, [{ num: 13 }]) }), // blank relator - still the same AND-group, not a new OR'd one
+      ddsLine({ keywords: `DSPATR(HI)` }),
+    ];
+
+    const dds = new DisplayFile();
+    dds.parse(lines);
+
+    const field = dds.formats.find(f => f.name === `FMT1`)!.fields[0];
+    expect(field.keywords[1].conditions).toEqual([
+      { indicators: [
+        { indicator: 10, negate: false }, { indicator: 11, negate: false },
+        { indicator: 12, negate: false }, { indicator: 13, negate: false },
+      ] },
+    ]);
+  });
+
+  it(`round-trips a field's own single-group condition`, () => {
+    const field = new FieldInfo(0, `FLD1`);
+    field.type = `A`;
+    field.length = 5;
+    field.decimals = 0;
+    field.displayType = `output`;
+    field.position = { x: 1, y: 1 };
+    field.conditions = [
+      { indicators: [{ indicator: 1, negate: false }, { indicator: 2, negate: false }, { indicator: 3, negate: true }] },
+    ];
+
+    const lines = DisplayFile.getLinesForField(field);
+
+    const dds = new DisplayFile();
+    dds.parse([`     A          R FMT1`, ...lines]);
+
+    const reparsed = dds.formats.find(f => f.name === `FMT1`)!.fields[0];
+    expect(reparsed.conditions).toEqual(field.conditions);
+  });
+
+  it(`round-trips a multi-group (AND then OR) keyword condition`, () => {
+    const keyword = {
+      name: `DSPATR`,
+      value: `HI`,
+      conditions: [
+        { indicators: [{ indicator: 10, negate: false }, { indicator: 11, negate: true }] },
+        { indicators: [{ indicator: 12, negate: false }] },
+      ],
+    };
+
+    const lines = DisplayFile.getLinesForKeyword(keyword);
+
+    const dds = new DisplayFile();
+    dds.parse([
+      `     A          R FMT1`,
+      `     A            FLD1           5A  O  1  1`,
+      ...lines,
+    ]);
+
+    const reparsedField = dds.formats.find(f => f.name === `FMT1`)!.fields[0];
+    const reparsedKeyword = reparsedField.keywords.find(k => k.name === `DSPATR`);
+    expect(reparsedKeyword?.conditions).toEqual(keyword.conditions);
+    expect(reparsedKeyword?.value).toBe(`HI`);
   });
 });
