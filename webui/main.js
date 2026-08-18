@@ -1487,6 +1487,9 @@ function updateRecordFormatSidebar() {
     tabs.push({ title: `Indicators`, html: createIndicatorsPanel(referencedIndicators) });
   }
 
+  const commandKeysTab = createCommandKeysPanel();
+  if (commandKeysTab) { tabs.push(commandKeysTab); }
+
   if (tabs.length > 0) {
     // Clamp in case the previously-selected tab no longer exists (e.g. the
     // Indicators tab disappeared because nothing references an indicator anymore).
@@ -1521,12 +1524,80 @@ function updatePreviewSidebar() {
     tabs.push({ title: `Indicators`, html: createIndicatorsPanel(referencedIndicators) });
   }
 
+  const commandKeysTab = createCommandKeysPanel();
+  if (commandKeysTab) { tabs.push(commandKeysTab); }
+
   if (tabs.length > 0) {
     const selectedIndex = Math.min(recordFormatSidebarTabIndex, tabs.length - 1);
     renderTabs(sidebar, tabs, selectedIndex, (index) => { recordFormatSidebarTabIndex = index; });
   } else {
     sidebar.innerHTML = ``;
   }
+}
+
+// CAxx/CFxx command-key keywords go up to 24 (CA01-CA24, CF01-CF24).
+const COMMAND_KEY_PATTERN = /^(CA|CF)(0[1-9]|1[0-9]|2[0-4])$/;
+
+/** @param {string} name */
+function isCommandKeyKeyword(name) {
+  return COMMAND_KEY_PATTERN.test(name);
+}
+
+/**
+ * A read-only legend of every CAxx/CFxx command-key keyword declared
+ * anywhere in the file, alongside which record format it's on - so you can
+ * see what's already wired up before adding a new one, without opening
+ * every record's Format Keywords tab to check.
+ * @returns {{title: string, html: Element}|undefined} undefined if the file
+ * uses no command keys at all, so callers can skip an empty tab.
+ */
+function createCommandKeysPanel() {
+  if (!activeDocument) { return undefined; }
+
+  /** @type {{format: string, keyword: Keyword}[]} */
+  const entries = [];
+  activeDocument.formats.forEach(format => {
+    // A CAxx/CFxx coded before any record (the file-level/global record)
+    // applies to every format in the file, not just one - labelled
+    // distinctly here rather than shown under the internal `_GLOBAL` name.
+    const formatLabel = format.name === GLOBAL_RECORD_FORMAT ? `File level` : format.name;
+
+    format.keywords.forEach(keyword => {
+      if (isCommandKeyKeyword(keyword.name)) {
+        entries.push({ format: formatLabel, keyword });
+      }
+    });
+  });
+
+  if (entries.length === 0) { return undefined; }
+
+  const section = document.createElement(`div`);
+
+  entries.forEach(({ format, keyword }) => {
+    const row = document.createElement(`div`);
+    row.style.display = `flex`;
+    row.style.alignItems = `center`;
+    row.style.gap = `0.5em`;
+    row.style.padding = `0.3em 1em`;
+
+    const icon = document.createElement(`span`);
+    icon.className = `codicon codicon-key`;
+    row.appendChild(icon);
+
+    const text = document.createElement(`span`);
+    text.innerText = keyword.value ? `${keyword.name}(${keyword.value})` : keyword.name;
+    row.appendChild(text);
+
+    const formatText = document.createElement(`span`);
+    formatText.innerText = format;
+    formatText.style.opacity = `0.65`;
+    formatText.style.marginLeft = `auto`;
+    row.appendChild(formatText);
+
+    section.appendChild(row);
+  });
+
+  return { title: `Command Keys`, html: section };
 }
 
 /**

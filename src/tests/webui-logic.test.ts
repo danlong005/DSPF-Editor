@@ -1069,6 +1069,66 @@ describe(`setTabs (record format selector) - Delete Format button state`, () => 
   });
 });
 
+describe(`createCommandKeysPanel`, () => {
+  it(`returns undefined when the file uses no CAxx/CFxx keywords at all`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({
+      formats: [{ name: `FMT1`, keywords: [{ name: `COLOR`, value: `BLU`, conditions: [] }], fields: [] }],
+    }, `dds.dspf`, false);
+
+    expect(sandbox.createCommandKeysPanel()).toBeUndefined();
+  });
+
+  it(`lists every command key across every format, ignoring non-command keywords`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({
+      formats: [
+        { name: `FMT1`, keywords: [
+          { name: `CF03`, value: `03`, conditions: [] },
+          { name: `COLOR`, value: `BLU`, conditions: [] },
+        ], fields: [] },
+        { name: `FMT2`, keywords: [
+          { name: `CA12`, value: undefined, conditions: [] },
+        ], fields: [] },
+      ],
+    }, `dds.dspf`, false);
+
+    const tab = sandbox.createCommandKeysPanel();
+    expect(tab.title).toBe(`Command Keys`);
+    expect(tab.html.children.length).toBe(2);
+  });
+
+  it(`includes a file-level command key, labelled distinctly from a record format`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({
+      formats: [
+        { name: `_GLOBAL`, keywords: [{ name: `CF03`, value: `03`, conditions: [] }], fields: [] },
+        { name: `FMT1`, keywords: [], fields: [] },
+      ],
+    }, `dds.dspf`, false);
+
+    const tab = sandbox.createCommandKeysPanel();
+    expect(tab.html.children.length).toBe(1);
+    const formatText = tab.html.children[0].children.find((c: FakeElement) => c.innerText === `File level`);
+    expect(formatText).toBeDefined();
+  });
+
+  it(`shows as a tab in the Design view's left sidebar too, not just Preview`, () => {
+    const sandbox = loadWebui(`design`);
+    sandbox.loadDDS({
+      formats: [{ name: `FMT1`, keywords: [{ name: `CF03`, value: `03`, conditions: [] }], fields: [] }],
+    }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const sidebar = sandbox.document.getElementById(`recordFormatSidebar`);
+    const tabsElement = sidebar.children.find((el: FakeElement) => el.tagName === `VSCODE-TABS`);
+    const headers = tabsElement.children
+      .filter((el: FakeElement) => el.tagName === `VSCODE-TAB-HEADER`)
+      .map((el: FakeElement) => el.innerText);
+    expect(headers).toContain(`Command Keys`);
+  });
+});
+
 describe(`updatePreviewSidebar - Composed Formats/Indicators tabs`, () => {
   function modelWithComposedFormatsAndIndicators() {
     return {
@@ -1157,7 +1217,8 @@ describe(`Design vs Preview mode`, () => {
     // what drives its render path (renderComposedPreview).
     sandbox.loadDDS(twoFormatModel(), `dds.dspf`, true);
 
-    expect(tabHeaders(sandbox, `recordFormatSidebar`)).toEqual([`Composed Formats`]);
+    // twoFormatModel's FMT1 carries a CF03 keyword, so Command Keys shows too.
+    expect(tabHeaders(sandbox, `recordFormatSidebar`)).toEqual([`Composed Formats`, `Command Keys`]);
   });
 
   it(`offers the Add Field panel only in the Design view`, () => {
