@@ -89,6 +89,36 @@ const vscode = acquireVsCodeApi();
 // a panel is one or the other for its whole lifetime, never both.
 const isPreviewMode = (typeof window !== `undefined` && window.__mode__) === `preview`;
 
+// Cmd/Ctrl+Z (and redo) pressed while focus is inside this webview never
+// reaches VS Code's own keybinding service - focus has moved into this
+// webview's own separate browser context, so the keystroke is purely a DOM
+// event here unless something forwards it. Every canvas edit already goes
+// through workspace.applyEdit (see RendererWebview.onDidGetMessage), so the
+// underlying document's real undo/redo stack already has everything - this
+// just asks the extension host to invoke it. Skipped while an actual text
+// input has focus (e.g. typing a field's name) so that keystroke undoes the
+// user's typing there instead, via the input's own native undo.
+document.addEventListener(`keydown`, (event) => {
+  const target = event.target;
+  const isEditableTarget = !!(target && (
+    target.tagName === `INPUT` ||
+    target.tagName === `TEXTAREA` ||
+    target.isContentEditable
+  ));
+  if (isEditableTarget) { return; }
+
+  const modifier = event.metaKey || event.ctrlKey;
+  if (!modifier) { return; }
+
+  const key = event.key.toLowerCase();
+  const isRedo = (key === `z` && event.shiftKey) || (key === `y` && event.ctrlKey);
+  const isUndo = key === `z` && !event.shiftKey;
+  if (!isUndo && !isRedo) { return; }
+
+  event.preventDefault();
+  vscode.postMessage({ command: isRedo ? `redo` : `undo` });
+});
+
 const FONT_SIZE = 14;
 const FONT_FAMILY = `Consolas, "Liberation Mono", Menlo, Courier, monospace`;
 

@@ -1,5 +1,5 @@
 import { readFileSync } from "fs";
-import { Uri, Webview, WebviewPanel, ExtensionContext, workspace, TextDocument, Range, WorkspaceEdit, Position, Disposable } from "vscode";
+import { Uri, Webview, WebviewPanel, ExtensionContext, workspace, TextDocument, Range, WorkspaceEdit, Position, Disposable, commands } from "vscode";
 import { DisplayFile, FieldInfo, Keyword, planLineInsertion } from "./dspf";
 
 export const DSPF_VIEW_TYPE = `dspf-editor.dspfEditor`;
@@ -10,6 +10,15 @@ export type RendererMode = `design` | `preview`;
 export class RendererWebview {
   private dds: DisplayFile | undefined;
   private readonly disposables: Disposable[] = [];
+  // Set only while our own applyDocumentEdit is in flight, so
+  // onDidChangeTextDocument can tell "this change is one of our own edits -
+  // whichever case handler triggered it already calls load() itself, with
+  // whatever rerender behavior that specific edit needs" apart from "this
+  // change came from somewhere else entirely (undo/redo, a direct edit in
+  // the text editor, git, ...) - which has no already-rendered client state
+  // to rely on, so it always needs a full rerender, not just a sidebar
+  // refresh, to actually show what changed.
+  private applyingOwnEdit = false;
 
   private get extensionPath() {
     return this.context.extensionUri;
@@ -42,9 +51,9 @@ export class RendererWebview {
     // in the text editor beside it, not just ones made through this webview.
     this.disposables.push(
       workspace.onDidChangeTextDocument(e => {
-        if (e.document.uri.toString() === this.document.uri.toString()) {
-          this.load(false);
-        }
+        if (e.document.uri.toString() !== this.document.uri.toString()) { return; }
+        if (this.applyingOwnEdit) { return; }
+        this.load(true);
       })
     );
     view.onDidDispose(() => this.disposables.forEach(d => d.dispose()));
@@ -71,6 +80,18 @@ export class RendererWebview {
     let fieldInfo: FieldInfo|undefined;
 
     switch (message.command) {
+      // Cmd/Ctrl+Z pressed inside the webview - see the keydown listener in
+      // webui/main.js for why this can't just be a native keybinding. The
+      // document's own undo/redo stack already has every canvas edit, since
+      // they're all applied via workspace.applyEdit; this just invokes it.
+      case 'undo':
+        await commands.executeCommand(`undo`);
+        break;
+
+      case 'redo':
+        await commands.executeCommand(`redo`);
+        break;
+
       case 'deleteField':
         recordFormat = message.recordFormat;
         const fieldName = message.fieldName;
@@ -249,7 +270,12 @@ export class RendererWebview {
   }
 
   private async applyDocumentEdit(workspaceEdit: WorkspaceEdit): Promise<boolean> {
-    return workspace.applyEdit(workspaceEdit);
+    this.applyingOwnEdit = true;
+    try {
+      return await workspace.applyEdit(workspaceEdit);
+    } finally {
+      this.applyingOwnEdit = false;
+    }
   }
 
   private getBaseHtml(webview: Webview) {

@@ -966,6 +966,72 @@ describe(`showRendererError`, () => {
   });
 });
 
+describe(`undo/redo keydown forwarding`, () => {
+  function keyEvent(overrides: any = {}) {
+    let prevented = false;
+    return {
+      key: `z`, metaKey: false, ctrlKey: false, shiftKey: false,
+      target: { tagName: `DIV` },
+      preventDefault: () => { prevented = true; },
+      get defaultPrevented() { return prevented; },
+      ...overrides,
+    };
+  }
+
+  it(`forwards Cmd+Z as undo`, () => {
+    const sandbox = loadWebui();
+    const event = keyEvent({ metaKey: true });
+    sandbox.document.trigger(`keydown`, event);
+
+    expect(sandbox.postedMessages).toContainEqual({ command: `undo` });
+    expect(event.defaultPrevented).toBe(true);
+  });
+
+  it(`forwards Ctrl+Z as undo`, () => {
+    const sandbox = loadWebui();
+    sandbox.document.trigger(`keydown`, keyEvent({ ctrlKey: true }));
+    expect(sandbox.postedMessages).toContainEqual({ command: `undo` });
+  });
+
+  it(`forwards Cmd+Shift+Z as redo`, () => {
+    const sandbox = loadWebui();
+    sandbox.document.trigger(`keydown`, keyEvent({ metaKey: true, shiftKey: true }));
+    expect(sandbox.postedMessages).toContainEqual({ command: `redo` });
+  });
+
+  it(`forwards Ctrl+Y as redo (the Windows/Linux convention)`, () => {
+    const sandbox = loadWebui();
+    sandbox.document.trigger(`keydown`, keyEvent({ ctrlKey: true, key: `y` }));
+    expect(sandbox.postedMessages).toContainEqual({ command: `redo` });
+  });
+
+  it(`ignores Z pressed without any modifier key`, () => {
+    const sandbox = loadWebui();
+    const event = keyEvent();
+    sandbox.document.trigger(`keydown`, event);
+
+    expect(sandbox.postedMessages).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it(`leaves an actual text input's own native undo alone`, () => {
+    const sandbox = loadWebui();
+    const event = keyEvent({ metaKey: true, target: { tagName: `INPUT` } });
+    sandbox.document.trigger(`keydown`, event);
+
+    expect(sandbox.postedMessages).toEqual([]);
+    expect(event.defaultPrevented).toBe(false);
+  });
+
+  it(`leaves a contenteditable field's own native undo alone`, () => {
+    const sandbox = loadWebui();
+    const event = keyEvent({ metaKey: true, target: { tagName: `CODE`, isContentEditable: true } });
+    sandbox.document.trigger(`keydown`, event);
+
+    expect(sandbox.postedMessages).toEqual([]);
+  });
+});
+
 describe(`isValidFormatName`, () => {
   it.each([
     `FMT1`, `A`, `$FMT`, `#FMT`, `@FMT`, `AB_CD`, `A123456789`,

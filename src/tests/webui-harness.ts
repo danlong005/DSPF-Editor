@@ -213,6 +213,8 @@ export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
     },
   };
 
+  const documentListeners: Record<string, ((event?: any) => void)[]> = {};
+
   const fakeDocument: any = {
     createElement(tag: string) {
       if (tag === `canvas`) {
@@ -228,6 +230,14 @@ export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
       const el = new FakeElement(`#text`);
       el.innerText = text;
       return el;
+    },
+    addEventListener(type: string, handler: (event?: any) => void) {
+      (documentListeners[type] ||= []).push(handler);
+    },
+    removeEventListener() { /* not needed for these tests */ },
+    /** Test-only helper (not a real DOM API) to fire registered listeners. */
+    trigger(type: string, event: any = {}) {
+      (documentListeners[type] || []).forEach(handler => handler(event));
     },
   };
 
