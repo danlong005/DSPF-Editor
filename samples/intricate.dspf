@@ -108,7 +108,7 @@
      A          R ALERT
      A                                      WINDOW(2 8 11 61)
      A                                      WDWBORDER(*COLOR RED)
-     A                                      WDWTITLE(*TEXT 'Alert' *COLOR WHT *TOP *CENTER)
+     A                                      WDWTITLE(*TEXT 'Alert Window' *COLOR WHT *TOP *CENTER)
      A                                  3  4'This is an alert message.'
      A            ALERTFLD       1A  B  5  4
      A                                      COLOR(YLW)
