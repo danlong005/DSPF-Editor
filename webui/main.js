@@ -1659,6 +1659,17 @@ function createComposedFormatsPanel(formatNames) {
     checkbox.addEventListener(`change`, () => {
       if (checkbox.checked) {
         composedFormats.add(name);
+
+        // A subfile control format's own SFLCTL keyword already pulls in
+        // and renders its subfile's fields (see addFieldsToLayer) - check
+        // the subfile record too, so its checkbox reflects what's already
+        // on screen instead of looking unchecked. Not reversed on uncheck -
+        // the subfile might still be wanted composed on its own.
+        const format = activeDocument.formats.find(f => f.name === name);
+        const subfileKeyword = format?.keywords.find(keyword => keyword.name === `SFLCTL`);
+        if (subfileKeyword?.value) {
+          composedFormats.add(subfileKeyword.value);
+        }
       } else {
         composedFormats.delete(name);
       }

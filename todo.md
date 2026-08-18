@@ -4,17 +4,7 @@ Ideas gathered from researching other DSPF/DDS-related VS Code extensions
 (2026-08-18), ranked by value vs. effort. Not commitments - just what we
 want to keep in view.
 
-## 1. Multi-size window resize
-
-Resizing a `WINDOW` on the canvas updates its size consistently across
-every declared `DSPSIZ` alternate size (`*DS3`/`*DS4`) at once, instead of
-just the currently-viewed one.
-
-- Touches window-size keyword generation in `src/ui/dspf.ts`.
-- Source: seen in "Display file DDS edit" (ChristianLarsen.dspf-edit).
-- Effort: medium.
-
-## 2. Hover/IntelliSense keyword docs in the raw source editor
+## 1. Hover/IntelliSense keyword docs in the raw source editor
 
 Contextual keyword completion and documentation-on-hover when editing the
 raw DDS text directly (independent of the canvas).
@@ -37,6 +27,12 @@ raw DDS text directly (independent of the canvas).
   unless that scope changes.
 - **Becoming a general RPG/ILE IDE** - out of scope; this stays a focused
   visual DDS designer.
+- **Multi-size window resize** (`*DS3`/`*DS4`-conditioned `WINDOW` keywords,
+  or paired window records per size) - real DDS support for this is
+  either a niche, IBM-discouraged pattern (conditioning one record's
+  keywords by display-size name) or relies on an invented naming
+  convention to pair two separate records as "the same window." Not
+  worth the complexity/ambiguity for how rarely it's actually used.
 
 ## Reference
 

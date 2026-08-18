@@ -1129,6 +1129,59 @@ describe(`createCommandKeysPanel`, () => {
   });
 });
 
+describe(`createComposedFormatsPanel - subfile auto-check`, () => {
+  function modelWithSubfile() {
+    return {
+      formats: [
+        { name: `SFLCTLFMT`, keywords: [{ name: `SFLCTL`, value: `SFLREC`, conditions: [] }], fields: [] },
+        { name: `SFLREC`, keywords: [], fields: [] },
+      ],
+    };
+  }
+
+  it(`checking a subfile control format also checks its subfile record - it's already drawn on screen either way`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS(modelWithSubfile(), `dds.dspf`, true);
+
+    let panel = sandbox.createComposedFormatsPanel([`SFLCTLFMT`, `SFLREC`]);
+    toggleComposedFormatCheckbox(panel, `SFLCTLFMT`, true);
+
+    panel = sandbox.createComposedFormatsPanel([`SFLCTLFMT`, `SFLREC`]);
+    const sflctl = panel.children.find((c: FakeElement) => c.attributes.label === `SFLCTLFMT`);
+    const sflrec = panel.children.find((c: FakeElement) => c.attributes.label === `SFLREC`);
+    expect(sflctl.checked).toBe(true);
+    expect(sflrec.checked).toBe(true);
+  });
+
+  it(`unchecking the control format afterward doesn't force-uncheck the subfile`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS(modelWithSubfile(), `dds.dspf`, true);
+
+    let panel = sandbox.createComposedFormatsPanel([`SFLCTLFMT`, `SFLREC`]);
+    toggleComposedFormatCheckbox(panel, `SFLCTLFMT`, true);
+    panel = sandbox.createComposedFormatsPanel([`SFLCTLFMT`, `SFLREC`]);
+    toggleComposedFormatCheckbox(panel, `SFLCTLFMT`, false);
+
+    panel = sandbox.createComposedFormatsPanel([`SFLCTLFMT`, `SFLREC`]);
+    const sflctl = panel.children.find((c: FakeElement) => c.attributes.label === `SFLCTLFMT`);
+    const sflrec = panel.children.find((c: FakeElement) => c.attributes.label === `SFLREC`);
+    expect(sflctl.checked).toBe(false);
+    expect(sflrec.checked).toBe(true);
+  });
+
+  it(`checking an ordinary format with no SFLCTL keyword doesn't check anything else`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS(modelWithSubfile(), `dds.dspf`, true);
+
+    let panel = sandbox.createComposedFormatsPanel([`SFLCTLFMT`, `SFLREC`]);
+    toggleComposedFormatCheckbox(panel, `SFLREC`, true);
+
+    panel = sandbox.createComposedFormatsPanel([`SFLCTLFMT`, `SFLREC`]);
+    const sflctl = panel.children.find((c: FakeElement) => c.attributes.label === `SFLCTLFMT`);
+    expect(sflctl.checked).toBe(false);
+  });
+});
+
 describe(`updatePreviewSidebar - Composed Formats/Indicators tabs`, () => {
   function modelWithComposedFormatsAndIndicators() {
     return {
