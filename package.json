@@ -12,6 +12,7 @@
     "url": "https://github.com/danlong005/DSPF-Editor/issues"
   },
   "homepage": "https://github.com/danlong005/DSPF-Editor#readme",
+  "icon": "images/icon.png",
   "engines": {
     "vscode": "^1.97.0"
   },
