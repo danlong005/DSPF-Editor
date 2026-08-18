@@ -8,12 +8,12 @@
      A                                      SPACEB(2)
      A                                     2'Item'
      A                                    20'Description'
-     A                                    50'Qty'
+     A                                  3 50'Quantity'
      A                                    60'Price'
      A          R DETAIL
      A            ITEM          15A  O     2
      A            DESC          30A  O    20
-     A            QTY            3D 0O    55
+     A            QTY            3D 0O  1 55
      A            PRICE          9D 2O    65
      A                                      SPACEA(1)
      A                                     2'Notes:'
