@@ -1492,6 +1492,48 @@ describe(`editKeyword - condition groups (up to 3 OR'd groups of 3 AND'd indicat
     expect(formGroup.querySelector(`#ind-1-0`).value).toBe(`20`);
     expect(formGroup.querySelector(`#neg-1-0`).checked).toBe(true);
   });
+
+  function conditionsSection(formGroup: FakeElement): FakeElement | undefined {
+    return formGroup.children.find(c => c.tagName === `VSCODE-COLLAPSIBLE`);
+  }
+
+  it(`collapses the Conditions section by default for a keyword with no existing conditions`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `DSPATR`, value: `HI`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const section = conditionsSection(formGroup)!;
+    expect(section).toBeDefined();
+    expect(section.attributes.open).toBeUndefined();
+  });
+
+  it(`collapses the Conditions section by default for a brand-new keyword (no existing keyword at all)`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {});
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const section = conditionsSection(formGroup)!;
+    expect(section.attributes.open).toBeUndefined();
+  });
+
+  it(`auto-expands the Conditions section when editing a keyword that already has a condition set`, () => {
+    const sandbox = loadWebui();
+    const existing = { name: `DSPATR`, value: `HI`, conditions: [group(cond(10))] };
+    sandbox.editKeyword(() => {}, existing);
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const section = conditionsSection(formGroup)!;
+    expect(section.attributes.open).toBe(``);
+  });
+
+  it(`the Confirm button is still the last element, regardless of the Conditions section`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `DSPATR`, value: `HI`, conditions: [group(cond(10))] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const lastChild = formGroup.children[formGroup.children.length - 1];
+    expect(lastChild.innerText).toBe(`Confirm`);
+  });
 });
 
 describe(`uppercaseOutsideQuotes`, () => {

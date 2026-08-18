@@ -2650,10 +2650,22 @@ function editKeyword(onUpdate, keyword) {
   // AND of up to 3 indicators, via continuation lines) - 3x3 covers the
   // vast majority of real DDS (parsing/rendering still supports more than
   // this if a file happens to have it, this cap is purely about keeping
-  // the editing form a reasonable size).
+  // the editing form a reasonable size). That's still ~30 stacked form
+  // elements, easily pushing Confirm off-screen - collapsed by default
+  // (auto-expanded only if the keyword already has a condition set) keeps
+  // Keyword/Value/Confirm compact and always visible without scrolling.
   const GROUP_COUNT = 3;
   const INDICATORS_PER_GROUP = 3;
   const existingGroups = keyword ? keyword.conditions : [];
+  const hasExistingConditions = existingGroups.some(g => g.indicators && g.indicators.length > 0);
+
+  const conditionsSection = document.createElement(`vscode-collapsible`);
+  conditionsSection.setAttribute(`title`, `Conditions`);
+  conditionsSection.style.display = `block`;
+  conditionsSection.style.marginTop = `1em`;
+  if (hasExistingConditions) {
+    conditionsSection.setAttribute(`open`, ``);
+  }
 
   for (let g = 0; g < GROUP_COUNT; g++) {
     if (g > 0) {
@@ -2662,7 +2674,7 @@ function editKeyword(onUpdate, keyword) {
       orLabel.style.marginTop = `1em`;
       orLabel.style.fontWeight = `600`;
       orLabel.style.opacity = `0.7`;
-      group.appendChild(orLabel);
+      conditionsSection.appendChild(orLabel);
     }
 
     const existingIndicators = existingGroups[g]?.indicators || [];
@@ -2672,11 +2684,13 @@ function editKeyword(onUpdate, keyword) {
       const negId = `neg-${g}-${s}`;
       const existing = existingIndicators[s];
 
-      group.appendChild(createLabel(`Indicator ${g * INDICATORS_PER_GROUP + s + 1}`, indId));
-      group.appendChild(createIndicatorSelect(indId, existing?.indicator));
-      group.appendChild(createCheckbox(negId, `Negate`, existing?.negate));
+      conditionsSection.appendChild(createLabel(`Indicator ${g * INDICATORS_PER_GROUP + s + 1}`, indId));
+      conditionsSection.appendChild(createIndicatorSelect(indId, existing?.indicator));
+      conditionsSection.appendChild(createCheckbox(negId, `Negate`, existing?.negate));
     }
   }
+
+  group.appendChild(conditionsSection);
 
   const button = document.createElement(`vscode-button`);
   button.setAttribute(`icon`, `check`);
