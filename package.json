@@ -1,7 +1,7 @@
 {
   "name": "DSPF-Editor",
   "displayName": "DSPF Editor",
-  "description": "DSPF Editor",
+  "description": "Visual drag-and-drop designer for IBM i DDS display files (.dspf) and printer files (.prtf)",
   "publisher": "DanielLong",
   "version": "0.2.0",
   "repository": {
@@ -17,7 +17,20 @@
     "vscode": "^1.97.0"
   },
   "categories": [
+    "Visualization",
     "Other"
+  ],
+  "keywords": [
+    "IBM i",
+    "AS400",
+    "iSeries",
+    "DDS",
+    "DSPF",
+    "PRTF",
+    "RPG",
+    "5250",
+    "display file",
+    "printer file"
   ],
   "activationEvents": [
     "onLanguage:dds.dspf",
