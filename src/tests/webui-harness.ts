@@ -182,6 +182,9 @@ class FakeKonvaNode {
   getStage() { return this; }
   getPointerPosition() { return { x: 0, y: 0 }; }
   fill(color?: string) { if (color !== undefined) { this.config.fill = color; } return this.config.fill; }
+  // Assigned unconditionally - clearing an outline sets it back to undefined.
+  stroke(...args: [string?]) { if (args.length) { this.config.stroke = args[0]; } return this.config.stroke; }
+  strokeWidth(value?: number) { if (value !== undefined) { this.config.strokeWidth = value; } return this.config.strokeWidth; }
   /** Only meaningful when called on a stage (getStage() returns the node itself here). */
   container() { return { style: {} as Record<string, string> }; }
   x(value?: number) { if (value !== undefined) { this.config.x = value; } return this.config.x; }

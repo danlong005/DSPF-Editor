@@ -305,10 +305,10 @@ describe(`getWindowOffset - window fields are coded relative to the window, not 
       windowSize: { x: 20, y: 3, width: 40, height: 8 },
       fields: [], keywords: [],
     };
-    // Row 1 / column 1 inside the window lands on the window's own start
-    // position, so the offset is one less than it (added to a 1-based field
-    // coordinate before it's converted to a 0-based pixel offset).
-    expect(sandbox.getWindowOffset(format)).toEqual({ x: 19, y: 2 });
+    // The start position is where the border goes, so row 1 / column 1
+    // inside the window lands one past it - the offset is the start position
+    // itself (added to a 1-based field coordinate).
+    expect(sandbox.getWindowOffset(format)).toEqual({ x: 20, y: 3 });
   });
 
   it(`resolves WINDOW(REF) to the referenced record's own coded size`, () => {
@@ -321,7 +321,7 @@ describe(`getWindowOffset - window fields are coded relative to the window, not 
     // from a test directly - so give it the same objects it'll find there.
     sandbox.loadDDS({ formats: [template, usesRef] }, `dds.dspf`, false);
 
-    expect(sandbox.getWindowOffset(usesRef)).toEqual({ x: 9, y: 4 });
+    expect(sandbox.getWindowOffset(usesRef)).toEqual({ x: 10, y: 5 });
   });
 });
 
@@ -700,6 +700,114 @@ describe(`getPageSize`, () => {
 
     const globalFormat = { keywords: [{ name: `DSPSIZ`, value: `24 80 *DS3`, conditions: [] }] };
     expect(sandbox.getPageSize(globalFormat)).toEqual({ width: 80, height: 24 });
+  });
+});
+
+describe(`isOutsideWindow - nothing can be coded on a window's border`, () => {
+  const windowSize = { x: 10, y: 4, width: 50, height: 6 };
+
+  function field(x: number, y: number, length: number): any {
+    return { name: `F`, position: { x, y }, length, displayType: `output`, keywords: [], conditions: [] };
+  }
+
+  it(`accepts a field anywhere inside lines 1-height and positions 1-width`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.isOutsideWindow(field(1, 1, 5), windowSize)).toBe(false);
+    expect(sandbox.isOutsideWindow(field(46, 6, 5), windowSize)).toBe(false); // cols 46-50, last line
+  });
+
+  it(`flags a field on the top or bottom border line`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.isOutsideWindow(field(3, 0, 5), windowSize)).toBe(true);
+    expect(sandbox.isOutsideWindow(field(3, 7, 5), windowSize)).toBe(true);
+  });
+
+  it(`flags a field on the left border, or one that runs into the right border`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.isOutsideWindow(field(0, 2, 5), windowSize)).toBe(true);
+    expect(sandbox.isOutsideWindow(field(47, 2, 5), windowSize)).toBe(true); // cols 47-51
+  });
+
+  it(`measures a constant by its text`, () => {
+    const sandbox = loadWebui();
+    const constant = { name: `C`, position: { x: 45, y: 2 }, value: `Too long`, displayType: `const`, keywords: [], conditions: [] };
+    expect(sandbox.isOutsideWindow(constant, windowSize)).toBe(true); // cols 45-52
+  });
+
+  it(`never flags anything outside a window`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.isOutsideWindow(field(0, 0, 5), undefined)).toBe(false);
+  });
+
+  it(`outlines a window field on the border in red when the window renders`, () => {
+    const sandbox = loadWebui();
+    const model = {
+      formats: [{
+        name: `INFOWIN`, isWindow: true, windowReference: undefined,
+        windowSize,
+        keywords: [{ name: `WINDOW`, value: `4 10 6 50`, conditions: [] }],
+        fields: [
+          { name: `INSIDE`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 3, y: 2 }, keywords: [], conditions: [] },
+          { name: `ONBORDER`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 3, y: 7 }, keywords: [], conditions: [] },
+        ],
+      }],
+    };
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    const layer = new sandbox.Konva.Layer({});
+    sandbox.renderSelectedFormat(layer, model.formats[0], false);
+
+    const strokeOf = (id: string) => layer.findOne(`#${id}`).findOne(`#bg`).config.stroke;
+    expect(strokeOf(`INFOWIN::INSIDE`)).toBeUndefined();
+    expect(strokeOf(`INFOWIN::ONBORDER`)).toBe(`red`); // colours.RED
+  });
+});
+
+describe(`warning outlines after a field edit`, () => {
+  const PX_PER_CHAR = 8;
+
+  function captureLayer(sandbox: any) {
+    let capturedLayer: any;
+    const RealLayer = sandbox.Konva.Layer;
+    sandbox.Konva.Layer = class extends RealLayer {
+      constructor(c: any) { super(c); capturedLayer = this; }
+    };
+    return () => capturedLayer;
+  }
+
+  function model() {
+    return {
+      formats: [{
+        name: `FMT1`, isWindow: false, windowReference: undefined, keywords: [],
+        fields: [
+          { name: `A`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 1, y: 1 }, keywords: [], conditions: [] },
+          { name: `B`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 20, y: 1 }, keywords: [], conditions: [] },
+        ],
+      }],
+    };
+  }
+
+  function dragTo(layer: any, id: string, column: number) {
+    const group = layer.findOne(`#${id}`);
+    group.x((column - 1) * PX_PER_CHAR);
+    group.trigger(`dragend`, { target: group });
+  }
+
+  it(`outlines both fields as soon as one is dragged up against the other, and clears them when it's dragged away`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(model(), `dds.dspf`, false);
+    const getLayer = captureLayer(sandbox);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const strokeOf = (id: string) => getLayer().findOne(`#${id}`).findOne(`#bg`).config.stroke;
+    expect(strokeOf(`FMT1::A`)).toBeUndefined();
+
+    dragTo(getLayer(), `FMT1::B`, 6); // A is cols 1-5, so B at 6 leaves no gap
+    expect(strokeOf(`FMT1::A`)).toBe(`red`);
+    expect(strokeOf(`FMT1::B`)).toBe(`red`);
+
+    dragTo(getLayer(), `FMT1::B`, 20);
+    expect(strokeOf(`FMT1::A`)).toBeUndefined();
+    expect(strokeOf(`FMT1::B`)).toBeUndefined();
   });
 });
 
@@ -2376,7 +2484,7 @@ describe(`window drag/resize`, () => {
     expect(windowGroup.config.draggable).toBe(true);
   });
 
-  it(`renders a window's own field relative to the window - group position + field position equals the old absolute pixel position`, () => {
+  it(`renders a window's own field relative to the window's interior, which starts just inside the border`, () => {
     const sandbox = loadWebui();
     sandbox.loadDDS(modelWithWindowField(), `dds.dspf`, false);
     const getLayer = captureLayer(sandbox);
@@ -2387,13 +2495,31 @@ describe(`window drag/resize`, () => {
     const fieldGroup = getLayer().findOne(`#WIN1::FLD1`);
     expect(fieldGroup).toBeDefined();
 
-    // field.position = {x: 3, y: 2}, window at {x: 20, y: 3} - the pre-refactor
-    // absolute pixel position was widthInP(3 - 1 + 19) / heightInP(2 - 1 + 2)
-    // (offset {19, 2} = windowSize - 1), i.e. column 21, line 3.
+    // field.position = {x: 3, y: 2}, window at {x: 20, y: 3} - the border
+    // sits on line 3 / column 20, so window row 2 is screen line 5 and window
+    // column 3 is screen column 23 (0-based pixel offsets 4 and 22).
     const absoluteX = windowGroup.config.x + fieldGroup.config.x;
     const absoluteY = windowGroup.config.y + fieldGroup.config.y;
-    expect(absoluteX).toBe(21 * PX_PER_CHAR);
-    expect(absoluteY).toBe(3 * PX_PER_LINE);
+    expect(absoluteX).toBe(22 * PX_PER_CHAR);
+    expect(absoluteY).toBe(4 * PX_PER_LINE);
+  });
+
+  it(`draws the border through the row/column around the interior, not over row 1`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS(modelWithWindowField(), `dds.dspf`, false);
+    const getLayer = captureLayer(sandbox);
+
+    sandbox.setWindowForFormat(`WIN1`);
+
+    const windowGroup = getLayer().findOne(`#WIN1::window`);
+    const border = windowGroup.findOne(`#windowBorder`);
+
+    // Half a cell outside the interior on every side, so all 8 rows and 40
+    // columns of WINDOW(3 20 8 40) are inside it.
+    expect(border.config.x).toBe(-PX_PER_CHAR / 2);
+    expect(border.config.y).toBe(-PX_PER_LINE / 2);
+    expect(border.config.width).toBe(41 * PX_PER_CHAR);
+    expect(border.config.height).toBe(9 * PX_PER_LINE);
   });
 
   it(`isn't draggable and offers no resize handle in a read-only (displayOnly) render`, () => {
@@ -2439,10 +2565,10 @@ describe(`window drag/resize`, () => {
     const handle = windowGroup.findOne(`#windowResizeHandle`);
     expect(handle).toBeDefined();
 
-    // Resize to 50 columns wide, 10 lines tall - inverting
-    // createWindowResizeHandle's own dragend formulas.
-    handle.x(50 * PX_PER_CHAR - HANDLE_SIZE);
-    handle.y((10 - 1) * PX_PER_LINE - HANDLE_SIZE);
+    // Resize to 50 columns wide, 10 lines tall - the handle sits on the
+    // border's bottom-right corner, half a cell outside the interior.
+    handle.x(50 * PX_PER_CHAR + PX_PER_CHAR / 2 - HANDLE_SIZE);
+    handle.y(10 * PX_PER_LINE + PX_PER_LINE / 2 - HANDLE_SIZE);
     handle.trigger(`dragend`);
 
     const sent = sandbox.postedMessages.find((m: any) => m.command === `updateFormat`);

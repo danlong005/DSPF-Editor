@@ -159,6 +159,17 @@ function gridCordsToFieldCords(x, y, offset = { x: 0, y: 0 }) {
   };
 }
 
+/**
+ * WINDOW's start line/position is where the window's top-left border goes,
+ * so a window's row 1/column 1 is the cell just inside it - the window's own
+ * Konva Group sits there (see renderSelectedFormat), so its fields need no
+ * shift beyond getElement's own "-1".
+ */
+const WINDOW_FIELD_OFFSET = { x: 0, y: 0 };
+
+/** How far the border line sits outside the interior: half a border cell. */
+const WINDOW_BORDER_INSET = { x: pxwPerChar / 2, y: pxhPerLine / 2 };
+
 function widthInP(x) {
   return x * pxwPerChar;
 }
@@ -253,10 +264,13 @@ function loadDDS(newDoc, type, withRerender = true) {
     // But a keyword's conditions could change which indicators are
     // referenced, so the left sidebar's Indicators tab still needs to
     // catch up now that activeDocument has the fresh data.
+    // It also has the field's new position/length now, so outlines can be
+    // worked out again for every field the edit might have affected.
     if (isPreviewMode) {
       updatePreviewSidebar();
     } else {
       updateRecordFormatSidebar();
+      refreshFieldWarnings();
     }
     return;
   }
@@ -460,7 +474,7 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
         x: widthInP(x),
         y: heightInP(y),
         width: widthInP(width),
-        height: heightInP(height-1)
+        height: heightInP(height)
       };
 
       const borderInfo = windowFormat.keywords.find(keyword => keyword.name === `WDWBORDER`);
@@ -545,7 +559,8 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
           // window's own draggable Group (below) supplies its actual screen
           // position via its own transform, so these no longer fold
           // windowConfig.baseX/baseY in directly.
-          const yPosition = (yPositionValue === `top` ? 0 : windowConfig.baseHeight);
+          // Row 0 and row height+1 are the border's own rows.
+          const yPosition = (yPositionValue === `top` ? 0 : windowConfig.baseHeight + 1);
           let xPosition = 1;
 
           switch (xPositionValue) {
@@ -610,13 +625,17 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
       // whatever's underneath, not just outline it. Matters most when this
       // format is composed on top of another one that already drew content
       // in the same area.
+      //
+      // The group's origin is interior row 1/column 1; the border occupies
+      // its own row/column on every side of the interior, so the line is
+      // drawn through the middle of those border cells.
       /** @type {Rect} */
       const windowRect = new Konva.Rect({
         id: `windowBorder`,
-        x: 0,
-        y: 0,
-        width: windowConfig.width,
-        height: windowConfig.height,
+        x: -WINDOW_BORDER_INSET.x,
+        y: -WINDOW_BORDER_INSET.y,
+        width: windowConfig.width + (2 * WINDOW_BORDER_INSET.x),
+        height: windowConfig.height + (2 * WINDOW_BORDER_INSET.y),
         fill: colours.BLK,
         stroke: windowColor,
       });
@@ -644,7 +663,7 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
       // window bounds - into the same group (so they move with it too),
       // not by re-deriving/re-drawing windowFormat's chrome a second time
       // (already drawn above, from windowFormat's own keywords).
-      addFieldsToLayer(windowGroup, windowFormat, displayOnly, { x: -1, y: -1 });
+      addFieldsToLayer(windowGroup, windowFormat, displayOnly, WINDOW_FIELD_OFFSET);
     }
   }
 
@@ -656,7 +675,7 @@ function renderSelectedFormat(layer, format, displayOnly = false) {
     // transform supplies the screen position) instead of baking an absolute
     // offset into each field, so dragging the window moves its fields and
     // title along with it live.
-    addFieldsToLayer(windowGroup || layer, format, displayOnly, windowGroup ? { x: -1, y: -1 } : { x: 0, y: 0 });
+    addFieldsToLayer(windowGroup || layer, format, displayOnly, windowGroup ? WINDOW_FIELD_OFFSET : { x: 0, y: 0 });
   }
 }
 
@@ -718,6 +737,7 @@ function addFieldsToLayer(layer, format, displayOnly = false, offset = { x: 0, y
   // getElement's own doc comment for why. getWindowOffset is always the
   // right one for drag-end, and a no-op {0, 0} for anything not a window.
   const dragOffset = getWindowOffset(format);
+  const windowSize = getWindowSize(format);
 
   const subfileFormat = format.keywords.find(keyword => keyword.name === `SFLCTL`);
   // TODO: handle when subFileFormat is found
@@ -745,7 +765,8 @@ function addFieldsToLayer(layer, format, displayOnly = false, offset = { x: 0, y
 
           if (indicatorsSatisfied(field.conditions)) {
             subField.name = `${field.name}_${row}`;
-            const content = getElement(subField, true, subfileRecord.name, subfileConflicting.has(field), offset, dragOffset);
+            const hasWarning = subfileConflicting.has(field) || isOutsideWindow(subField, windowSize);
+            const content = getElement(subField, true, subfileRecord.name, hasWarning, offset, dragOffset);
             layer.add(content);
           }
         });
@@ -758,11 +779,51 @@ function addFieldsToLayer(layer, format, displayOnly = false, offset = { x: 0, y
   }
 
   const fields = format.fields.filter(field => field.displayType !== `hidden`);
-  const conflicting = findTouchingFields(fields);
+  const warnings = findFieldWarnings(format);
   fields.forEach(field => {
     if (indicatorsSatisfied(field.conditions)) {
-      const content = getElement(field, displayOnly, format.name, conflicting.has(field), offset, dragOffset);
+      const content = getElement(field, displayOnly, format.name, warnings.has(field), offset, dragOffset);
       layer.add(content);
+    }
+  });
+}
+
+/**
+ * Every field in a format that gets the red warning outline - touching or
+ * overlapping another field/constant on its row, or sitting on its window's
+ * border.
+ * @param {RecordInfo} format
+ * @returns {Set<FieldInfo>}
+ */
+function findFieldWarnings(format) {
+  const fields = format.fields.filter(field => field.displayType !== `hidden`);
+  const windowSize = getWindowSize(format);
+  const warnings = findTouchingFields(fields);
+  fields.forEach(field => {
+    if (isOutsideWindow(field, windowSize)) { warnings.add(field); }
+  });
+  return warnings;
+}
+
+/**
+ * Re-applies the warning outline to every field of the focused format already
+ * on the canvas. A field edit only redraws that one field (see
+ * sendFieldUpdate), but moving or resizing it can make it - and whatever it
+ * now touches, or used to - start or stop touching another field.
+ */
+function refreshFieldWarnings() {
+  if (!existingStage || !activeDocument) { return; }
+
+  const format = activeDocument.formats.find(f => f.name === lastSelectedFormat);
+  if (!format) { return; }
+
+  const warnings = findFieldWarnings(format);
+  format.fields.forEach(field => {
+    const bg = existingStage.findOne(`#${elementId(format.name, field.name)}`)?.findOne(`#bg`);
+    if (bg) {
+      const hasWarning = warnings.has(field);
+      bg.stroke(hasWarning ? colours.RED : undefined);
+      bg.strokeWidth(hasWarning ? 1 : 0);
     }
   });
 }
@@ -791,8 +852,9 @@ function renderSpecificField(fieldInfo) {
     : existingStage.findOne(`#${lastSelectedFormat}`);
 
   if (container) {
-    const renderOffset = format && format.isWindow ? { x: -1, y: -1 } : { x: 0, y: 0 };
-    const content = getElement(fieldInfo, false, lastSelectedFormat, false, renderOffset, getWindowOffset(format));
+    const renderOffset = format && format.isWindow ? WINDOW_FIELD_OFFSET : { x: 0, y: 0 };
+    const hasWarning = isOutsideWindow(fieldInfo, getWindowSize(format));
+    const content = getElement(fieldInfo, false, lastSelectedFormat, hasWarning, renderOffset, getWindowOffset(format));
     container.add(content);
 
     return content;
@@ -809,15 +871,41 @@ function renderSpecificField(fieldInfo) {
  * @returns {{x: number, y: number}}
  */
 function getWindowOffset(format) {
-  if (!format || !format.isWindow) { return { x: 0, y: 0 }; }
+  const windowSize = getWindowSize(format);
+  if (!windowSize) { return { x: 0, y: 0 }; }
+
+  return { x: windowSize.x, y: windowSize.y };
+}
+
+/**
+ * A window record's own coded size/position - resolving WINDOW(REF) to the
+ * record it borrows from. Undefined for anything not a window.
+ * @param {RecordInfo|undefined} format
+ * @returns {{x: number, y: number, width: number, height: number}|undefined}
+ */
+function getWindowSize(format) {
+  if (!format || !format.isWindow) { return undefined; }
 
   const windowFormat = format.windowReference
     ? activeDocument.formats.find(f => f.name === format.windowReference)
     : format;
 
-  if (!windowFormat) { return { x: 0, y: 0 }; }
+  return windowFormat ? windowFormat.windowSize : undefined;
+}
 
-  return { x: windowFormat.windowSize.x - 1, y: windowFormat.windowSize.y - 1 };
+/**
+ * Whether a field sits on (or past) a window's border rather than inside it -
+ * a window's usable area is lines 1-height and positions 1-width, and the
+ * border is drawn around that, so nothing coded can go on it.
+ * @param {FieldInfo} field
+ * @param {{width: number, height: number}|undefined} windowSize
+ */
+function isOutsideWindow(field, windowSize) {
+  if (!windowSize) { return false; }
+
+  const { x, y } = field.position;
+  const end = x + fieldDisplayLength(field) - 1;
+  return y < 1 || y > windowSize.height || x < 1 || end > windowSize.width;
 }
 
 function elementId(formatName, fieldName) {
@@ -911,6 +999,20 @@ function sendWindowResize(format, startY, startX, sizeY, sizeX) {
 }
 
 /**
+ * The window's interior size, in characters/lines, that a resize handle's
+ * current position stands for - the handle sits on the border's bottom-right
+ * corner (see createWindowResizeHandle). Never smaller than 1x1.
+ * @param {Rect} handle
+ * @param {number} handleSize
+ */
+function windowResizeHandleSize(handle, handleSize) {
+  return {
+    width: Math.max(1, Math.round((handle.x() + handleSize - WINDOW_BORDER_INSET.x) / pxwPerChar)),
+    height: Math.max(1, Math.round((handle.y() + handleSize - WINDOW_BORDER_INSET.y) / pxhPerLine)),
+  };
+}
+
+/**
  * A small draggable handle on a window's bottom-right corner that resizes
  * it - both dimensions at once, snapped to the character grid, with a floor
  * of 1 character/line. Invisible until hovered, same as a field's own
@@ -925,8 +1027,8 @@ function createWindowResizeHandle(windowGroup, format, windowConfig) {
 
   const handle = new Konva.Rect({
     id: `windowResizeHandle`,
-    x: windowConfig.width - handleSize,
-    y: windowConfig.height - handleSize,
+    x: windowConfig.width + WINDOW_BORDER_INSET.x - handleSize,
+    y: windowConfig.height + WINDOW_BORDER_INSET.y - handleSize,
     width: handleSize,
     height: handleSize,
     fill: colours.WHT,
@@ -946,24 +1048,19 @@ function createWindowResizeHandle(windowGroup, format, windowConfig) {
   });
 
   handle.on(`dragmove`, () => {
-    const snappedX = Math.max(pxwPerChar, Math.round(handle.x() / pxwPerChar) * pxwPerChar);
-    const snappedY = Math.max(pxhPerLine, Math.round(handle.y() / pxhPerLine) * pxhPerLine);
-    handle.x(snappedX);
-    handle.y(snappedY);
+    const { width, height } = windowResizeHandleSize(handle, handleSize);
+    handle.x(widthInP(width) + WINDOW_BORDER_INSET.x - handleSize);
+    handle.y(heightInP(height) + WINDOW_BORDER_INSET.y - handleSize);
 
     const border = windowGroup.findOne(`#windowBorder`);
     if (border) {
-      border.width(snappedX + handleSize);
-      border.height(snappedY + handleSize);
+      border.width(widthInP(width) + (2 * WINDOW_BORDER_INSET.x));
+      border.height(heightInP(height) + (2 * WINDOW_BORDER_INSET.y));
     }
   });
 
   handle.on(`dragend`, () => {
-    // widthInP has no "-1" adjustment, heightInP's does (see windowConfig's
-    // own construction in renderSelectedFormat) - inverted here to recover
-    // the DDS-coded size from the rendered pixel size.
-    const sizeX = Math.max(1, Math.round((handle.x() + handleSize) / pxwPerChar));
-    const sizeY = Math.max(1, Math.round((handle.y() + handleSize) / pxhPerLine) + 1);
+    const { width: sizeX, height: sizeY } = windowResizeHandleSize(handle, handleSize);
 
     sendWindowResize(format, windowConfig.baseY, windowConfig.baseX, sizeY, sizeX);
   });
@@ -977,16 +1074,15 @@ function createWindowResizeHandle(windowGroup, format, windowConfig) {
  * @param {string} [formatName] the record format this field belongs to, so its
  *   canvas id doesn't collide with a same-named field in another composed format
  * @param {boolean} [hasWarning] outlines the field in red - it touches or
- *   overlaps another field/constant on the same row, which doesn't render
- *   correctly on a real 5250 display
+ *   overlaps another field/constant on the same row, or sits on a window's
+ *   border, neither of which renders correctly on a real 5250 display
  * @param {{x: number, y: number}} [offset] a window's own field is rendered
  *   as a child of that window's own draggable Konva Group (see
  *   renderSelectedFormat) - its DDS-coded position is relative to the
  *   window's own top-left corner already, and the group's own transform
- *   supplies the window's screen position, so this is always the constant
- *   {x: -1, y: -1} (the same "-1" conversion getElement always does, just
- *   with no window-position-dependent shift needed on top of it). Zero for
- *   anything not inside a window.
+ *   supplies the window's screen position, so this is always
+ *   WINDOW_FIELD_OFFSET (no window-position-dependent shift needed on top of
+ *   getElement's own "-1"). Zero for anything not inside a window.
  * @param {{x: number, y: number}} [dragOffset] Konva's absolutePosition()
  *   (used when a drag ends, below) always resolves through every ancestor's
  *   transform to the stage's own coordinate space, regardless of nesting -
@@ -2120,6 +2216,12 @@ function sendFieldUpdate(recordFormat, originalFieldName, newFieldInfo) {
   // }
 
   const newGroup = renderSpecificField(newFieldInfo);
+
+  // A drag or resize has already changed this field's own object in
+  // activeDocument, so its outlines can update right away. An edit from the
+  // sidebar catches up when the extension sends the updated document back
+  // (see loadDDS).
+  refreshFieldWarnings();
 
   if (newGroup) {
     setActiveField(newGroup, newFieldInfo);
