@@ -1451,6 +1451,73 @@ describe(`renderComposedPreview`, () => {
     expect(ids).toContain(`FOOTER::F1`);
   });
 
+  it(`draws a subfile only once, inside its control format's window, when both are checked`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS({
+      formats: [
+        {
+          name: `SFLREC`, isWindow: false, keywords: [{ name: `SFL`, conditions: [] }],
+          fields: [{ name: `ITEM`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 2, y: 3 }, keywords: [], conditions: [] }],
+        },
+        {
+          name: `SFLCTLWIN`, isWindow: true, windowReference: undefined,
+          windowSize: { x: 10, y: 4, width: 40, height: 10 },
+          keywords: [
+            { name: `WINDOW`, value: `4 10 10 40`, conditions: [] },
+            { name: `SFLCTL`, value: `SFLREC`, conditions: [] },
+            { name: `SFLPAG`, value: `2`, conditions: [] },
+          ],
+          fields: [],
+        },
+      ],
+    }, `dds.dspf`, false);
+
+    let capturedLayer: any;
+    const RealLayer = sandbox.Konva.Layer;
+    sandbox.Konva.Layer = class extends RealLayer {
+      constructor(c: any) { super(c); capturedLayer = this; }
+    };
+
+    // Checking the control format checks SFLREC too (see the composed
+    // formats panel tests) - both end up composed.
+    const panel = sandbox.createComposedFormatsPanel([`SFLREC`, `SFLCTLWIN`]);
+    toggleComposedFormatCheckbox(panel, `SFLCTLWIN`, true);
+
+    // Nothing from SFLREC drawn straight onto the layer at screen coordinates...
+    const topLevelIds = capturedLayer.children.map((c: any) => c.config.id);
+    expect(topLevelIds.filter((id: string) => id?.startsWith(`SFLREC::`))).toEqual([]);
+
+    // ...only the SFLPAG rows, inside the window.
+    const windowGroup = capturedLayer.findOne(`#SFLCTLWIN::window`);
+    const rowIds = windowGroup.children.map((c: any) => c.config.id).filter((id: string) => id?.startsWith(`SFLREC::`));
+    expect(rowIds).toEqual([`SFLREC::ITEM_0`, `SFLREC::ITEM_1`]);
+  });
+
+  it(`still draws a subfile record checked on its own, without its control format`, () => {
+    const sandbox = loadWebui(`preview`);
+    sandbox.loadDDS({
+      formats: [
+        {
+          name: `SFLREC`, isWindow: false, keywords: [{ name: `SFL`, conditions: [] }],
+          fields: [{ name: `ITEM`, type: `A`, length: 5, decimals: 0, displayType: `output`, value: undefined, position: { x: 2, y: 3 }, keywords: [], conditions: [] }],
+        },
+        { name: `SFLCTLFMT`, isWindow: false, keywords: [{ name: `SFLCTL`, value: `SFLREC`, conditions: [] }], fields: [] },
+      ],
+    }, `dds.dspf`, false);
+
+    let capturedLayer: any;
+    const RealLayer = sandbox.Konva.Layer;
+    sandbox.Konva.Layer = class extends RealLayer {
+      constructor(c: any) { super(c); capturedLayer = this; }
+    };
+
+    const panel = sandbox.createComposedFormatsPanel([`SFLREC`, `SFLCTLFMT`]);
+    toggleComposedFormatCheckbox(panel, `SFLREC`, true);
+
+    const ids = capturedLayer.children.map((c: any) => c.config.id);
+    expect(ids).toContain(`SFLREC::ITEM`);
+  });
+
   it(`stops rendering a format once it's unchecked`, () => {
     const sandbox = loadWebui(`preview`);
     sandbox.loadDDS(twoRealFormatsModel(), `dds.dspf`, false);

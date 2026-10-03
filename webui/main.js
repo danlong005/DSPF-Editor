@@ -363,9 +363,19 @@ function renderComposedPreview() {
     let layer = new Konva.Layer({ id: `preview` });
     layer.add(bg);
 
-    const formatsToRender = Array.from(composedFormats)
+    const composed = Array.from(composedFormats)
       .map(name => activeDocument.formats.find(format => format.name === name))
       .filter(Boolean);
+
+    // A subfile control format already draws its subfile's rows itself (see
+    // addFieldsToLayer) - inside its window, if it's one. Drawing the subfile
+    // record on its own as well would put a second copy of row 1 at its
+    // screen coordinates, outside the window. On its own, without its
+    // control format, it still draws as usual.
+    const drawnByControl = new Set(composed
+      .map(format => format.keywords.find(keyword => keyword.name === `SFLCTL`)?.value)
+      .filter(Boolean));
+    const formatsToRender = composed.filter(format => !drawnByControl.has(format.name));
 
     // Windows always draw on top of everything else - Array#sort is stable,
     // so this only reorders windows-vs-non-windows and otherwise preserves
