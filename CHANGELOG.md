@@ -6,6 +6,18 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-10-03
+
+### Fixed
+
+- A window's border was drawn one row and one column too far in, and one row short. `WINDOW(4 10 6 50)` put its top border through window row 2 and its left border through column 2, so row 1 and column 1 landed on or outside the border, the title was hidden behind anything on row 1, and row 6 sat on the bottom border. The border now goes on the window's start line and position, with all of rows 1-6 and columns 1-50 inside it and the title on the border line.
+- In Preview, composing a subfile control format that's a window also drew a stray copy of its subfile's first row outside the window - the subfile record, auto-checked alongside its control format, was being drawn a second time on its own at screen coordinates.
+- The red outline on fields that touch or overlap only updated on a full redraw, so dragging or resizing a field up against another (or away from it) didn't show or clear the warning until something else redrew the screen. Outlines now update as soon as a field edit lands.
+
+### Added
+
+- A field or constant on or past a window's border - line 0, a line past the window's height, or running past its width - gets the same red warning outline as touching fields, since nothing coded can sit on a window's border.
+
 ## [0.5.0] - 2026-09-01
 
 ### Added
