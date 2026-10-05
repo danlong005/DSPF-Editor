@@ -22,7 +22,7 @@ same. Note the workaround for `.value` only selecting an entry already in
 ## Where we are today
 
 Tiers 1 and 2 are done, and so is Tier 3's metadata module: all keyword
-knowledge lives in `webui/keywords.js` - the name list, value sets, help for
+knowledge lives in `webui/keywords.js` - the per-file-type name lists, value sets, help for
 both file types, number ranges, and the parameter forms with their
 `parse`/`compose` pairs - and the editor reads it through one lookup,
 `keywordInfo(name, documentType)`. The tables stay separate in the source
@@ -106,17 +106,14 @@ multi-value, which is Tier 2's first item.
 
 ## Small, found on the way
 
-- **Names in `DDS_KEYWORDS` that IBM's references don't carry.** Writing the
-  help tables turned up 15 entries in the keyword name list that appear in
-  neither *DDS for display files* nor *DDS for printer files*: `ALIGN`,
-  `CONCAT`, `DATA`, `DFRWRT`, `END`, `FORMFEED`, `HLPPGM`, `OUTPUT`,
-  `OVERFLOW`, `PAGSIZ`, `TRNSPARENCY`, `UDATE`, `UDAY`, `UMONTH`, `UYEAR`.
-  Some look like misspellings of real keywords (`TRNSPARENCY` for `TRNSPY`),
-  some like CRTPRTF parameters or RPG special words that aren't DDS keywords
-  at all - but `PAGSIZ` is one we actively parse and render printer pages
-  from, and `samples/intricate.prtf` codes it, so this needs deciding rather
-  than a blind delete. The help-line test pins the list, so it fails loudly if
-  the name list changes without this being revisited.
+- ~~**Names in `DDS_KEYWORDS` that IBM's references don't carry.**~~ Done:
+  the name list is now built per file type from the help tables
+  (`keywordNames`), so every name offered is one IBM documents for that file
+  type. That dropped the 14 that were never DSPF/PRTF keywords (CRTPRTF
+  parameters, RPG special words, `CONCAT`) and fixed `TRNSPARENCY` to
+  `TRNSPY`. `PAGSIZ` stays readable for sizing the printer canvas but sits
+  in `EDITOR_ONLY_KEYWORDS`: not offered, and warned about wherever it's
+  coded, since the compiler rejects it.
 
 ## Explicitly not pursuing
 

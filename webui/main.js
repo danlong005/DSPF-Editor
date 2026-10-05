@@ -3045,7 +3045,8 @@ function editKeyword(onUpdate, keyword, level) {
     // doesn't add it. If we're editing a keyword this list doesn't happen to
     // cover, make sure its name is still there so it shows up instead of
     // silently going blank.
-    const names = value && !DDS_KEYWORDS.includes(value) ? [value, ...DDS_KEYWORDS] : DDS_KEYWORDS;
+    const known = keywordNames(activeDocumentType);
+    const names = value && !known.includes(value) ? [value, ...known] : known;
     select.options = names.map(name => ({ label: name, value: name }));
     if (value) {
       select.value = value;

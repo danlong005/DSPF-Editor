@@ -67,7 +67,8 @@ If the file's `DSPSIZ`/`PAGSIZ` defines more than one size (e.g. `*DS3` and
     subfile records, and `SFLSIZ`/`SFLPAG` a number box. Whatever the
     form, the value stays typeable, as does the keyword
     name itself, so nothing stops you entering a keyword or value it
-    doesn't know about. Selecting a keyword also shows a line explaining
+    doesn't know about. The name list offers every keyword IBM documents
+    for the kind of file you're editing, display or printer. Selecting a keyword also shows a line explaining
     what it does and which level (file, record or field) it's legal at,
     taken from IBM's DDS references and specific to the kind of file
     you're editing — `COLOR` on a printer file is the colour a field is
@@ -100,7 +101,7 @@ right sidebar also has:
 - **Format Keywords** — keywords on the currently selected record format
   (e.g. `WINDOW`, `SFLCTL`).
 - **File Keywords** — file-level (screen-level) keywords that apply to the
-  whole display/printer file (e.g. `DSPSIZ`/`PAGSIZ`, `INDARA`, `CA03`).
+  whole display/printer file (e.g. `DSPSIZ`, `INDARA`, `CA03`).
 
 ### Indicators
 
@@ -140,7 +141,10 @@ rows to show.
 Printer files render as a page instead of a screen:
 
 - The canvas is sized from `PAGSIZ` instead of `DSPSIZ` (defaulting to a
-  standard 66×132 page if `PAGSIZ` isn't coded).
+  standard 66×132 page if `PAGSIZ` isn't coded). `PAGSIZ` is the editor's
+  own convention, not DDS - the compiler rejects it, and a printer file's
+  real page size is CRTPRTF's `PAGESIZE` - so it's flagged with a warning
+  wherever it's coded.
 - A field's vertical position, when no line number is coded on it, is
   computed from `SPACEB`/`SKIPB`/`SPACEA`/`SKIPA` the way a real printer
   file lays out — not guessed.

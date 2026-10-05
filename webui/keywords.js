@@ -50,36 +50,14 @@ const COMMAND_KEY_KEYWORDS = Array.from({ length: 24 }, (_, index) => {
   return [`CA${number}`, `CF${number}`];
 }).flat();
 
-// Common DDS keywords for display files (DSPF) and printer files (PRTF), at
-// file/record/field level. Not necessarily exhaustive - there are
-// obscure/version-specific keywords not listed here. The keyword select below
-// is a filterable combobox that also accepts free text, so a keyword missing
-// from this list can still just be typed directly.
-const DDS_KEYWORDS = [
-  ...COMMAND_KEY_KEYWORDS,
-  `AFPRSC`, `ALARM`, `ALIGN`, `ASSUME`, `AUTO`,
-  `BARCODE`, `BLANKS`, `BLINK`,
-  `CDEFNT`,
-  `CHANGE`, `CHECK`, `CHGINPDFT`, `CHRSIZ`, `CLRL`, `COLOR`, `CONCAT`, `CPI`, `CSRLOC`,
-  `DATA`, `DATE`, `DATFMT`, `DATSEP`, `DFRWRT`, `DFT`, `DSPATR`, `DSPSIZ`, `DUPLEX`,
-  `EDTCDE`, `EDTWRD`, `END`, `ENDPAGE`, `ERRMSG`, `ERRMSGID`, `ERRSFL`,
-  `FONT`, `FORCE`, `FORMFEED`,
-  `HELP`, `HLPARA`, `HLPID`, `HLPPGM`, `HLPRTN`,
-  `IGCALTTYP`, `INDARA`, `INDTXT`,
-  `KEEP`, `LPI`,
-  `MNUBAR`, `MSGID`, `MSGLOC`,
-  `OUTBIN`, `OUTPUT`, `OVERFLOW`, `OVERLAY`,
-  `PAGEDOWN`, `PAGEUP`, `PAGNBR`, `PAGRTT`, `PAGSIZ`, `PRINT`, `PRTQLTY`, `PULLDOWN`, `PUTOVR`, `PUTRETAIN`,
-  `RANGE`, `REF`, `REFFLD`, `RMVWDW`, `ROLLDOWN`, `ROLLUP`, `RTNCSRLOC`,
-  `SFL`, `SFLCLR`, `SFLCSRRRN`, `SFLCTL`, `SFLDROP`, `SFLDSP`, `SFLDSPCTL`, `SFLEND`,
-  `SFLENTER`, `SFLFOLD`, `SFLINZ`, `SFLLIN`, `SFLMODE`, `SFLMSG`, `SFLMSGID`, `SFLMSGRCD`,
-  `SFLNXTCHG`, `SFLPAG`, `SFLPGMQ`, `SFLRCDNBR`, `SFLRNA`, `SFLROLVAL`, `SFLSCROLL`, `SFLSIZ`,
-  `SKIPA`, `SKIPB`, `SPACEA`, `SPACEB`, `SYSNAME`,
-  `TEXT`, `TIME`, `TIMFMT`, `TIMSEP`, `TRNSPARENCY`,
-  `UDATE`, `UDAY`, `UMONTH`, `UNDERLINE`, `USER`, `USRDFN`, `USRRSTDSP`, `UYEAR`,
-  `VALUES`, `VLDCMDKEY`,
-  `WDWBORDER`, `WDWTITLE`, `WINDOW`, `WRDWRAP`,
-].sort();
+/**
+ * Not DDS at all, but read by the editor - so coding one is allowed and
+ * gets a warning saying exactly that, rather than the generic "isn't a
+ * keyword we know". Never offered in the name list.
+ */
+const EDITOR_ONLY_KEYWORDS = {
+  PAGSIZ: `PAGSIZ isn't DDS, and the compiler will reject it - the editor only reads it to size the page. A printer file's real page size is CRTPRTF's PAGESIZE`,
+};
 
 /**
  * Value sets for keywords whose value is a code from a fixed list, keyed by
@@ -702,6 +680,24 @@ const KEYWORD_PARAMETERS = {
 KEYWORD_PARAMETERS.CF = KEYWORD_PARAMETERS.CA;
 
 /**
+ * The keyword names the name combobox offers for a file type: every keyword
+ * IBM's reference for that file type documents (the help tables above), with
+ * all 48 CAxx/CFxx spelled out for display files. Built from the help tables
+ * so every name offered is a real keyword for the file being edited - the
+ * combobox still accepts anything typed.
+ * @param {string} [documentType] `dds.prtf` for a printer file
+ */
+function keywordNames(documentType) {
+  if (documentType === `dds.prtf`) {
+    return Object.keys(PRINTER_KEYWORD_HELP).sort();
+  }
+
+  // `CA`/`CF` are the help table's stand-ins for the 48 real command keys.
+  const names = Object.keys(KEYWORD_HELP).filter(name => name !== `CA` && name !== `CF`);
+  return [...names, ...COMMAND_KEY_KEYWORDS].sort();
+}
+
+/**
  * Everything tabled about one keyword, in one object, so callers ask once
  * rather than consulting each table by name:
  *
@@ -780,6 +776,10 @@ function keywordWarnings(name, value, context = {}) {
     return [];
   }
 
+  if (Object.hasOwn(EDITOR_ONLY_KEYWORDS, keywordName)) {
+    return [EDITOR_ONLY_KEYWORDS[keywordName]];
+  }
+
   if (!info.help) {
     const otherFileType = isPrinterFile ? `dds.dspf` : `dds.prtf`;
 
@@ -790,7 +790,7 @@ function keywordWarnings(name, value, context = {}) {
     }
 
     // Nothing to say about the value of a keyword we don't know at all.
-    return DDS_KEYWORDS.includes(keywordName) ? [] : [`${keywordName} isn't a keyword we know - check the spelling`];
+    return [`${keywordName} isn't a keyword we know - check the spelling`];
   }
 
   const warnings = [];

@@ -1674,7 +1674,7 @@ describe(`editKeyword - uppercasing`, () => {
     const group = currentKeywordEditorGroup(sandbox);
     const keywordSelect = group.children.find((el: FakeElement) => el.attributes.id === `keyword`);
     // Mirrors typing a brand-new keyword name into the creatable combobox -
-    // not one of the predefined DDS_KEYWORDS options.
+    // not one of the names keywordNames offers.
     keywordSelect.value = `myowncmt`;
 
     const confirmButton = group.children[group.children.length - 1];
@@ -2477,10 +2477,11 @@ describe(`keywordWarnings - soft checks, never a gate`, () => {
     expect(sandbox.keywordWarnings(`SPACEB`, `1`, display)).toEqual([`SPACEB is a printer-file keyword - display files don't have it`]);
   });
 
-  it(`leaves alone the names in our list that IBM's references don't cover`, () => {
+  it(`says PAGSIZ isn't DDS, even though the editor reads it`, () => {
     const sandbox = loadWebui();
-    // Whether these belong at all is its own open question in todo.md.
-    expect(sandbox.keywordWarnings(`PAGSIZ`, `66 132`, printer)).toEqual([]);
+    const [warning] = sandbox.keywordWarnings(`PAGSIZ`, `66 132`, { ...printer, level: `File` });
+    expect(warning).toMatch(/^PAGSIZ isn't DDS, and the compiler will reject it/);
+    expect(warning).toMatch(/PAGESIZE/);
   });
 
   it(`doesn't hold a printer file to display-file values`, () => {
@@ -2680,21 +2681,58 @@ describe(`editKeyword - the keyword help line`, () => {
 
   it(`describes every keyword the name list offers, in the file type that offers it`, () => {
     const sandbox = loadWebui();
-    sandbox.editKeyword(() => {});
-    const names: string[] = currentKeywordEditorGroup(sandbox)
-      .querySelector(`#keyword`).options.map((option: any) => option.value);
 
-    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
-    const undescribed = names.filter(name => !sandbox.keywordHelpText(name));
-    sandbox.loadDDS({ formats: [] }, `dds.prtf`, false);
-    const inNeither = undescribed.filter(name => !sandbox.keywordHelpText(name));
+    for (const type of [`dds.dspf`, `dds.prtf`]) {
+      sandbox.loadDDS({ formats: [] }, type, false);
+      sandbox.editKeyword(() => {});
+      const names: string[] = currentKeywordEditorGroup(sandbox)
+        .querySelector(`#keyword`).options.map((option: any) => option.value);
 
-    // Everything left is a name IBM's display/printer DDS references don't
-    // carry (System/36-era or misspelt entries in the list - see todo.md).
-    expect(inNeither).toEqual([
+      // The list is built from IBM's references, so nothing in it goes undescribed.
+      expect(names.filter(name => !sandbox.keywordHelpText(name)), type).toEqual([]);
+    }
+  });
+});
+
+describe(`the keyword name list - per file type`, () => {
+  function namesFor(sandbox: any, type: string): string[] {
+    sandbox.loadDDS({ formats: [] }, type, false);
+    return sandbox.keywordNames(type);
+  }
+
+  it(`offers each file type its own keywords, not the other's`, () => {
+    const sandbox = loadWebui();
+    const display = namesFor(sandbox, `dds.dspf`);
+    const printer = namesFor(sandbox, `dds.prtf`);
+
+    expect(display).toContain(`DSPATR`);
+    expect(display).not.toContain(`SPACEB`);
+    expect(printer).toContain(`SPACEB`);
+    expect(printer).not.toContain(`DSPATR`);
+    expect(printer.filter(name => sandbox.isCommandKeyKeyword(name))).toEqual([]);
+  });
+
+  it(`drops the names that were never DDS keywords, and spells TRNSPY right`, () => {
+    const sandbox = loadWebui();
+    const all = [...namesFor(sandbox, `dds.dspf`), ...namesFor(sandbox, `dds.prtf`)];
+
+    for (const name of [
       `ALIGN`, `CONCAT`, `DATA`, `DFRWRT`, `END`, `FORMFEED`, `HLPPGM`, `OUTPUT`,
       `OVERFLOW`, `PAGSIZ`, `TRNSPARENCY`, `UDATE`, `UDAY`, `UMONTH`, `UYEAR`,
-    ]);
+    ]) {
+      expect(all, name).not.toContain(name);
+    }
+    expect(all).toContain(`TRNSPY`);
+  });
+
+  it(`still shows an existing keyword that isn't on the list instead of blanking it`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.prtf`, false);
+    sandbox.editKeyword(() => {}, { name: `PAGSIZ`, value: `66 132`, conditions: [] });
+
+    const area = sandbox.document.getElementById(`keywordEditorArea`);
+    const formGroup = area.children.find((el: FakeElement) => el.tagName === `VSCODE-FORM-GROUP`);
+    expect(formGroup.querySelector(`#keyword`).value).toBe(`PAGSIZ`);
   });
 });
 

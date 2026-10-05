@@ -15,6 +15,12 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - `CHECK` offers a checkbox per code like `DSPATR`, since it takes a list (`CHECK(ME FE)`), and knows the codes it was missing: `FE`, `RZ`, `RLTB`, `VNE` and the modulus checks `M10`/`M10F`/`M11`/`M11F`.
 - `EDTCDE` offers `A`-`D`, `W` and the user-defined `5`-`9`; `DSPATR` offers `OID` and `SP`; `DATFMT` offers `*JOB`.
 
+### Changed
+
+- The keyword name list is now every keyword IBM documents for the kind of file you're editing - 230 for a display file (48 of them the command keys) and 70 for a printer file - instead of one shared list of 167. A printer file no longer offers `DSPATR` or the `CAxx`/`CFxx` keys, and a display file no longer offers `SPACEB`. Typing any other name still works.
+- Fourteen names that were never display or printer file keywords are out of the list: `ALIGN`, `DFRWRT`, `FORMFEED` and `OVERFLOW` (CRTPRTF/CRTDSPF parameters), `UDATE`, `UDAY`, `UMONTH` and `UYEAR` (RPG special words), `CONCAT` (a logical file keyword), and `DATA`, `END`, `HLPPGM` and `OUTPUT`. `TRNSPARENCY` is now spelled `TRNSPY`.
+- `PAGSIZ` is still read to size a printer file's page, but it isn't offered in the list any more, and coding it shows a warning that it isn't DDS - the compiler rejects it, and the real page size comes from CRTPRTF's `PAGESIZE`.
+
 ### Fixed
 
 - Several `EDTCDE` and `CHECK` value descriptions were wrong. `EDTCDE(J)` through `M` were described as CR-for-negative when they use a trailing minus, and 1-4 had their commas wrong (1 and 2 have commas, 3 and 4 don't); `CHECK(ER)` is automatic record advance, not erase-to-end-of-field, and `CHECK(RB)` is right-adjust with blank fill.
