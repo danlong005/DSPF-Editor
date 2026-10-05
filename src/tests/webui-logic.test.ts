@@ -2073,6 +2073,297 @@ describe(`editKeyword - multi-value keywords (DSPATR)`, () => {
   });
 });
 
+describe(`keyword parameter parsing`, () => {
+  it(`reads WINDOW's explicit, *DFT and program-field forms`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseWindowValue(`10 2 12 75 *NOMSGLIN`)).toMatchObject({
+      startLine: `10`, startPosition: `2`, lines: `12`, columns: `75`, noMessageLine: true,
+    });
+    expect(sandbox.parseWindowValue(`*DFT 8 40`)).toMatchObject({ startLine: ``, startPosition: ``, lines: `8`, columns: `40` });
+    expect(sandbox.parseWindowValue(`&LINE &POS 8 40`)).toMatchObject({ startLine: `&LINE`, startPosition: `&POS` });
+    expect(sandbox.parseWindowValue(``)).toMatchObject({ lines: ``, columns: `` });
+  });
+
+  it(`can't read a WINDOW reference or a malformed value`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseWindowValue(`WINREC`)).toBeUndefined();
+    expect(sandbox.parseWindowValue(`10 2 12`)).toBeUndefined();
+    expect(sandbox.parseWindowValue(`10 2 X 75`)).toBeUndefined();
+  });
+
+  it(`round-trips every WINDOW form it reads, keeping options it has no control for`, () => {
+    const sandbox = loadWebui();
+    for (const value of [`10 2 12 75`, `10 2 12 75 *NOMSGLIN`, `*DFT 8 40 *MSGLIN *NORSTCSR`, `&L &P 8 40 *RSTCSR`, ``]) {
+      expect(sandbox.composeWindowValue(sandbox.parseWindowValue(value))).toBe(value);
+    }
+  });
+
+  it(`writes *DFT when no start position is given`, () => {
+    const sandbox = loadWebui();
+    const params = { ...sandbox.parseWindowValue(``), lines: `8`, columns: `40` };
+    expect(sandbox.composeWindowValue(params)).toBe(`*DFT 8 40`);
+  });
+
+  it(`reads a command key's indicator and text, undoing DDS's quote escape`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseCommandKeyValue(`03 'Exit'`)).toMatchObject({ indicator: `03`, text: `Exit` });
+    expect(sandbox.parseCommandKeyValue(`3`)).toMatchObject({ indicator: `03`, text: `` });
+    expect(sandbox.parseCommandKeyValue(`12 'Don''t save'`)).toMatchObject({ indicator: `12`, text: `Don't save` });
+    expect(sandbox.parseCommandKeyValue(``)).toMatchObject({ indicator: ``, text: `` });
+    expect(sandbox.parseCommandKeyValue(`00`)).toBeUndefined();
+    expect(sandbox.parseCommandKeyValue(`03 Exit`)).toBeUndefined();
+  });
+
+  it(`writes a command key's text back with its quotes escaped`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.composeCommandKeyValue({ indicator: `12`, text: `Don't save` })).toBe(`12 'Don''t save'`);
+    expect(sandbox.composeCommandKeyValue({ indicator: `03`, text: `` })).toBe(`03`);
+    expect(sandbox.composeCommandKeyValue({ indicator: ``, text: `` })).toBe(``);
+  });
+
+  it(`reads and writes every REFFLD form`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.parseReferenceFieldValue(`CUSTNO`)).toMatchObject({ record: ``, field: `CUSTNO`, file: `` });
+    expect(sandbox.parseReferenceFieldValue(`CUSREC/CUSTNO MYLIB/CUSTMAST`)).toMatchObject({
+      record: `CUSREC`, field: `CUSTNO`, file: `MYLIB/CUSTMAST`,
+    });
+    expect(sandbox.parseReferenceFieldValue(`CUSTNO *SRC`)).toMatchObject({ file: `*SRC` });
+    expect(sandbox.parseReferenceFieldValue(`CUSTNO FILE EXTRA`)).toBeUndefined();
+
+    for (const value of [`CUSTNO`, `CUSREC/CUSTNO MYLIB/CUSTMAST`, `CUSTNO *SRC`, `CUSTNO CUSTMAST`]) {
+      expect(sandbox.composeReferenceFieldValue(sandbox.parseReferenceFieldValue(value))).toBe(value);
+    }
+  });
+});
+
+describe(`editKeyword - parameter forms (WINDOW, CAxx/CFxx, REFFLD)`, () => {
+  function currentKeywordEditorGroup(sandbox: any): FakeElement {
+    const area = sandbox.document.getElementById(`keywordEditorArea`);
+    return area.children.find((el: FakeElement) => el.tagName === `VSCODE-FORM-GROUP`);
+  }
+
+  function valueBox(formGroup: FakeElement): FakeElement {
+    return formGroup.querySelector(`#value`);
+  }
+
+  /** The control for one parameter, found by its data-parameter id. */
+  function parameter(formGroup: FakeElement, id: string): FakeElement {
+    const visit = (el: FakeElement): FakeElement | undefined => {
+      if (el.dataset.parameter === id) { return el; }
+      for (const child of el.children) {
+        const found = visit(child);
+        if (found) { return found; }
+      }
+      return undefined;
+    };
+    const control = visit(formGroup);
+    if (!control) { throw new Error(`No control for parameter ${id}`); }
+    return control;
+  }
+
+  /** The container the parameter controls sit in - hidden when the value won't parse. */
+  function parameterForm(formGroup: FakeElement): FakeElement {
+    return valueBox(formGroup).parentElement!.children[1];
+  }
+
+  function setParameter(formGroup: FakeElement, id: string, value: string) {
+    const control = parameter(formGroup, id);
+    control.value = value;
+    control.trigger(`change`);
+  }
+
+  function typeInValueBox(formGroup: FakeElement, value: string) {
+    const box = valueBox(formGroup);
+    box.value = value;
+    box.trigger(`input`);
+  }
+
+  function confirm(formGroup: FakeElement) {
+    formGroup.children[formGroup.children.length - 1].onclick();
+  }
+
+  it(`splits an existing WINDOW into its four positions`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `WINDOW`, value: `10 2 12 75 *NOMSGLIN`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    expect(parameter(formGroup, `startLine`).value).toBe(`10`);
+    expect(parameter(formGroup, `startPosition`).value).toBe(`2`);
+    expect(parameter(formGroup, `lines`).value).toBe(`12`);
+    expect(parameter(formGroup, `columns`).value).toBe(`75`);
+    expect(parameter(formGroup, `noMessageLine`).checked).toBe(true);
+    expect(parameterForm(formGroup).style.display).toBe(`block`);
+  });
+
+  it(`rebuilds the value as the fields are edited, and saves it`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((keyword: any) => { saved = keyword; }, { name: `WINDOW`, value: ``, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    setParameter(formGroup, `lines`, `8`);
+    setParameter(formGroup, `columns`, `40`);
+    expect(valueBox(formGroup).value).toBe(`*DFT 8 40`);
+
+    setParameter(formGroup, `startLine`, `5`);
+    setParameter(formGroup, `startPosition`, `10`);
+    const flag = parameter(formGroup, `noMessageLine`);
+    flag.attributes.checked = `true`;
+    flag.trigger(`change`);
+
+    expect(valueBox(formGroup).value).toBe(`5 10 8 40 *NOMSGLIN`);
+
+    confirm(formGroup);
+    expect(saved.value).toBe(`5 10 8 40 *NOMSGLIN`);
+  });
+
+  it(`keeps a WINDOW option it has no field for when the fields are edited`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `WINDOW`, value: `10 2 12 75 *NORSTCSR`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    setParameter(formGroup, `columns`, `60`);
+
+    expect(valueBox(formGroup).value).toBe(`10 2 12 60 *NORSTCSR`);
+  });
+
+  it(`steps aside for a WINDOW reference, leaving it editable and saved as typed`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((keyword: any) => { saved = keyword; }, { name: `WINDOW`, value: `WINREC`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    expect(parameterForm(formGroup).style.display).toBe(`none`);
+    expect(valueBox(formGroup).value).toBe(`WINREC`);
+
+    confirm(formGroup);
+    expect(saved.value).toBe(`WINREC`);
+  });
+
+  it(`re-reads the fields as the value box is typed in, hiding them while it won't parse`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `WINDOW`, value: `10 2 12 75`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    typeInValueBox(formGroup, `10 2 12`);
+    expect(parameterForm(formGroup).style.display).toBe(`none`);
+
+    typeInValueBox(formGroup, `10 2 12 70`);
+    expect(parameterForm(formGroup).style.display).toBe(`block`);
+    expect(parameter(formGroup, `columns`).value).toBe(`70`);
+  });
+
+  it(`gives a command key an indicator dropdown and text, quoting the text on save`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((keyword: any) => { saved = keyword; }, { name: `CF12`, value: `12 'Cancel'`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const indicator = parameter(formGroup, `indicator`);
+    expect(indicator.tagName).toBe(`VSCODE-SINGLE-SELECT`);
+    expect(indicator.value).toBe(`12`);
+    expect(parameter(formGroup, `text`).value).toBe(`Cancel`);
+
+    setParameter(formGroup, `indicator`, `13`);
+    setParameter(formGroup, `text`, `Don't save`);
+
+    confirm(formGroup);
+    // Text inside quotes keeps its case through the uppercasing on confirm.
+    expect(saved.value).toBe(`13 'Don''t save'`);
+  });
+
+  it(`saves a command key with no indicator as a bare keyword`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((keyword: any) => { saved = keyword; }, { name: `CA03`, value: `03`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    setParameter(formGroup, `indicator`, ``);
+
+    confirm(formGroup);
+    expect(saved.value).toBeUndefined();
+  });
+
+  it(`splits REFFLD into field, record and file`, () => {
+    const sandbox = loadWebui();
+    let saved: any;
+    sandbox.editKeyword((keyword: any) => { saved = keyword; }, { name: `REFFLD`, value: `CUSTNO`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    expect(parameter(formGroup, `field`).value).toBe(`CUSTNO`);
+
+    setParameter(formGroup, `file`, `mylib/custmast`);
+    confirm(formGroup);
+    expect(saved.value).toBe(`CUSTNO MYLIB/CUSTMAST`);
+  });
+
+  it(`drops a leftover value the newly picked keyword's fields can't read`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `COLOR`, value: `RED`, conditions: [] });
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const select = formGroup.querySelector(`#keyword`);
+    select.value = `WINDOW`;
+    select.trigger(`change`);
+
+    expect(valueBox(formGroup).value).toBe(``);
+    expect(parameterForm(formGroup).style.display).toBe(`block`);
+  });
+});
+
+describe(`editKeyword - SFLSIZ/SFLPAG and SFLCTL`, () => {
+  function valueControl(sandbox: any): FakeElement {
+    const area = sandbox.document.getElementById(`keywordEditorArea`);
+    const formGroup = area.children.find((el: FakeElement) => el.tagName === `VSCODE-FORM-GROUP`);
+    return formGroup.querySelector(`#value`);
+  }
+
+  it(`gives SFLSIZ and SFLPAG a number box`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `SFLPAG`, value: `0010`, conditions: [] });
+
+    const control = valueControl(sandbox);
+    expect(control.attributes.type).toBe(`number`);
+    expect(control.attributes.min).toBe(`1`);
+    expect(control.value).toBe(`0010`);
+  });
+
+  it(`falls back to plain text for an SFLSIZ that isn't a number`, () => {
+    const sandbox = loadWebui();
+    sandbox.editKeyword(() => {}, { name: `SFLSIZ`, value: `&SIZE`, conditions: [] });
+
+    const control = valueControl(sandbox);
+    expect(control.attributes.type).toBeUndefined();
+    expect(control.value).toBe(`&SIZE`);
+  });
+
+  it(`offers the file's subfile records for SFLCTL`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({
+      formats: [
+        { name: `SFLREC`, keywords: [{ name: `SFL`, value: undefined, conditions: [] }], fields: [] },
+        { name: `MAIN`, keywords: [], fields: [] },
+        { name: `OTHERSFL`, keywords: [{ name: `SFL`, value: undefined, conditions: [] }], fields: [] },
+      ],
+    }, `dds.dspf`, false);
+    sandbox.editKeyword(() => {}, { name: `SFLCTL`, value: `SFLREC`, conditions: [] });
+
+    const control = valueControl(sandbox);
+    expect(control.tagName).toBe(`VSCODE-SINGLE-SELECT`);
+    expect(control.creatable).toBe(true);
+    expect(control.options.map((option: any) => option.value)).toEqual([`SFLREC`, `OTHERSFL`]);
+    expect(control.value).toBe(`SFLREC`);
+  });
+
+  it(`keeps a plain text box for SFLCTL when the file has no subfile yet`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [{ name: `MAIN`, keywords: [], fields: [] }] }, `dds.dspf`, false);
+    sandbox.editKeyword(() => {}, { name: `SFLCTL`, value: ``, conditions: [] });
+
+    expect(valueControl(sandbox).tagName).toBe(`VSCODE-TEXTFIELD`);
+  });
+});
+
 describe(`editKeyword - the keyword help line`, () => {
   function currentKeywordEditorGroup(sandbox: any): FakeElement {
     const area = sandbox.document.getElementById(`keywordEditorArea`);

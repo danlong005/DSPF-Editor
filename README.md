@@ -61,7 +61,12 @@ If the file's `DSPSIZ`/`PAGSIZ` defines more than one size (e.g. `*DS3` and
     (`COLOR`, `CHECK`, `EDTCDE`, `DATFMT`, `TIMFMT`, `SFLEND`) offer a
     dropdown of the valid values with what each one means, and `DSPATR`
     — whose value is a list of attributes — offers a checkbox per
-    attribute. Either way the value stays typeable, as does the keyword
+    attribute. Keywords with several positional parameters get a field
+    per parameter: `WINDOW` (start line, start position, lines, columns,
+    `*NOMSGLIN`), `CAxx`/`CFxx` (response indicator and text) and
+    `REFFLD` (field, record format, file). `SFLCTL` offers the file's
+    subfile records, and `SFLSIZ`/`SFLPAG` a number box. Whatever the
+    form, the value stays typeable, as does the keyword
     name itself, so nothing stops you entering a keyword or value it
     doesn't know about. Selecting a keyword also shows a line explaining
     what it does and which level (file, record or field) it's legal at,

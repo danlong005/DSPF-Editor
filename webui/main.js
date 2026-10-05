@@ -3152,11 +3152,231 @@ function keywordHelpText(name) {
  * @param {string} keywordName
  */
 function keywordValueOptions(keywordName) {
+  if (keywordName === `SFLCTL`) {
+    return subfileRecordOptions();
+  }
+
   const values = KEYWORD_VALUES[keywordName];
 
   return values
     ? Object.entries(values).map(([value, meaning]) => ({ label: `${value} - ${meaning}`, value }))
     : undefined;
+}
+
+/**
+ * SFLCTL's value is the name of the subfile record it controls, so its
+ * dropdown is every record in the open file that's coded SFL - or undefined
+ * when there isn't one yet, which keeps the plain text box rather than
+ * offering an empty list.
+ */
+function subfileRecordOptions() {
+  const names = (activeDocument?.formats || [])
+    .filter(format => format.keywords.some(keyword => keyword.name === `SFL`))
+    .map(format => format.name);
+
+  return names.length > 0 ? names.map(name => ({ label: name, value: name })) : undefined;
+}
+
+/**
+ * Keywords whose value is a single record count, with the range DDS allows.
+ * Their Value box becomes a number box - but only while what's in it is a
+ * number, so a hand-written value that isn't still opens as plain text.
+ */
+const NUMBER_KEYWORDS = {
+  SFLPAG: { min: 1, max: 9999 },
+  SFLSIZ: { min: 1, max: 9999 },
+};
+
+// A DDS name: a record format, field, file or library.
+const DDS_NAME = `[A-Z#@$][A-Z0-9#@$_]*`;
+
+const WINDOW_MESSAGE_LINE_OPTIONS = [`*MSGLIN`, `*NOMSGLIN`];
+const WINDOW_OPTIONS = [...WINDOW_MESSAGE_LINE_OPTIONS, `*RSTCSR`, `*NORSTCSR`];
+
+/**
+ * Splits a WINDOW value into its positional parameters, or returns undefined
+ * for one the form can't represent (a WINDOW(recordname) reference, or
+ * anything malformed). Handles WINDOW(line pos lines cols) and
+ * WINDOW(*DFT lines cols), where line/pos may be a program field (&FIELD),
+ * followed by any of *MSGLIN/*NOMSGLIN/*RSTCSR/*NORSTCSR. Options the form
+ * has no control for are kept in `otherOptions` so composing doesn't drop them.
+ * @param {string} value
+ */
+function parseWindowValue(value) {
+  const tokens = valueTokens(value);
+  const options = [];
+
+  while (tokens.length > 0 && WINDOW_OPTIONS.includes(tokens[tokens.length - 1].toUpperCase())) {
+    options.unshift(tokens.pop().toUpperCase());
+  }
+
+  const isNumber = (token) => /^\d+$/.test(token);
+  const isStart = (token) => isNumber(token) || new RegExp(`^&${DDS_NAME}$`, `i`).test(token);
+
+  let start = [``, ``];
+  let size = [``, ``];
+
+  if (tokens.length === 0 && options.length === 0) {
+    // A brand-new WINDOW with nothing in it yet - every field starts blank.
+  } else if (tokens.length === 3 && tokens[0].toUpperCase() === `*DFT` && isNumber(tokens[1]) && isNumber(tokens[2])) {
+    size = tokens.slice(1);
+  } else if (tokens.length === 4 && isStart(tokens[0]) && isStart(tokens[1]) && isNumber(tokens[2]) && isNumber(tokens[3])) {
+    start = tokens.slice(0, 2);
+    size = tokens.slice(2);
+  } else {
+    return undefined;
+  }
+
+  return {
+    startLine: start[0],
+    startPosition: start[1],
+    lines: size[0],
+    columns: size[1],
+    noMessageLine: options.includes(`*NOMSGLIN`),
+    explicitMessageLine: options.includes(`*MSGLIN`),
+    otherOptions: options.filter(option => !WINDOW_MESSAGE_LINE_OPTIONS.includes(option)),
+  };
+}
+
+/** @param {ReturnType<typeof parseWindowValue>} params */
+function composeWindowValue(params) {
+  const hasStart = params.startLine || params.startPosition;
+  const messageLine = params.noMessageLine ? `*NOMSGLIN` : (params.explicitMessageLine ? `*MSGLIN` : ``);
+  const options = [messageLine, ...params.otherOptions].filter(option => option);
+
+  if (!hasStart && !params.lines && !params.columns && options.length === 0) {
+    return ``;
+  }
+
+  // No start position means the system picks one - that's what *DFT says.
+  const start = hasStart ? [params.startLine, params.startPosition] : [`*DFT`];
+
+  return [...start, params.lines, params.columns, ...options].filter(token => token).join(` `);
+}
+
+/**
+ * Splits a CAxx/CFxx value - CA03(03 'Exit') - into its response indicator
+ * and optional text, or undefined for anything else. The text comes back
+ * with DDS's doubled-quote escape undone.
+ * @param {string} value
+ */
+function parseCommandKeyValue(value) {
+  const match = /^(?:(\d{1,2}))?\s*(?:'((?:[^']|'')*)')?$/.exec((value || ``).trim());
+
+  if (!match || match[1] === `0` || match[1] === `00`) {
+    return undefined;
+  }
+
+  return {
+    indicator: match[1] ? match[1].padStart(2, `0`) : ``,
+    text: (match[2] ?? ``).replace(/''/g, `'`),
+  };
+}
+
+/** @param {ReturnType<typeof parseCommandKeyValue>} params */
+function composeCommandKeyValue(params) {
+  const text = params.text ? `'${params.text.replace(/'/g, `''`)}'` : ``;
+  return [params.indicator, text].filter(part => part).join(` `);
+}
+
+/**
+ * Splits a REFFLD value - REFFLD([record/]field [*SRC | [library/]file]) -
+ * into its parts, or undefined for anything else.
+ * @param {string} value
+ */
+function parseReferenceFieldValue(value) {
+  const trimmed = (value || ``).trim();
+
+  if (!trimmed) {
+    return { record: ``, field: ``, file: `` };
+  }
+
+  const pattern = new RegExp(`^(?:(${DDS_NAME})/)?(${DDS_NAME})(?:\\s+(\\*SRC|(?:${DDS_NAME}/)?${DDS_NAME}))?$`, `i`);
+  const match = pattern.exec(trimmed);
+
+  return match ? { record: match[1] || ``, field: match[2], file: match[3] || `` } : undefined;
+}
+
+/** @param {ReturnType<typeof parseReferenceFieldValue>} params */
+function composeReferenceFieldValue(params) {
+  const field = params.record ? `${params.record}/${params.field}` : params.field;
+  return [field, params.file].filter(part => part).join(` `);
+}
+
+/**
+ * Keywords whose value is several positional parameters, each given its own
+ * control under the Value box. `parse` turns the value string into the
+ * parameters (or undefined when it can't, and the form steps aside) and
+ * `compose` turns them back. Each field's `id` is the parameter's key;
+ * `type` is `text` unless said otherwise.
+ *
+ * `CA`/`CF` stand in for all 48 command keys, as in KEYWORD_HELP.
+ */
+const KEYWORD_PARAMETERS = {
+  CA: {
+    fields: [
+      { id: `indicator`, label: `Response indicator`, type: `indicator` },
+      { id: `text`, label: `Text - describes the key, documentation only (optional)` },
+    ],
+    parse: parseCommandKeyValue,
+    compose: composeCommandKeyValue,
+  },
+  REFFLD: {
+    fields: [
+      { id: `field`, label: `Field` },
+      { id: `record`, label: `Record format (optional)` },
+      { id: `file`, label: `File - library/file, or *SRC for this file (optional)` },
+    ],
+    parse: parseReferenceFieldValue,
+    compose: composeReferenceFieldValue,
+  },
+  WINDOW: {
+    fields: [
+      { id: `startLine`, label: `Start line (blank for *DFT)` },
+      { id: `startPosition`, label: `Start position (blank for *DFT)` },
+      { id: `lines`, label: `Lines` },
+      { id: `columns`, label: `Columns` },
+      { id: `noMessageLine`, label: `*NOMSGLIN - no message line in the window`, type: `flag` },
+    ],
+    parse: parseWindowValue,
+    compose: composeWindowValue,
+  },
+};
+KEYWORD_PARAMETERS.CF = KEYWORD_PARAMETERS.CA;
+
+
+/**
+ * The parameter form for a keyword, or undefined for one that doesn't get one.
+ * @param {string} keywordName
+ */
+function keywordParameters(keywordName) {
+  const key = isCommandKeyKeyword(keywordName) ? keywordName.slice(0, 2) : keywordName;
+  return Object.hasOwn(KEYWORD_PARAMETERS, key) ? KEYWORD_PARAMETERS[key] : undefined;
+}
+
+/**
+ * Whether a value already typed for one keyword can sensibly carry over when
+ * a different one is picked - true unless the new keyword's own control can
+ * say it's wrong.
+ * @param {string} keywordName
+ * @param {string} value
+ */
+function valueFitsKeyword(keywordName, value) {
+  const parameters = keywordParameters(keywordName);
+  if (parameters) {
+    return parameters.parse(value) !== undefined;
+  }
+
+  if (NUMBER_KEYWORDS[keywordName]) {
+    return value === `` || /^\d+$/.test(value);
+  }
+
+  const options = keywordValueOptions(keywordName);
+  // Every code in a multi-value list has to be one the new keyword knows;
+  // an empty value fits anything.
+  const codes = MULTI_VALUE_KEYWORDS.has(keywordName) ? valueTokens(value) : [value].filter(code => code);
+
+  return !options || codes.every(code => options.some(option => option.value === code.toUpperCase()));
 }
 
 /**
@@ -3223,18 +3443,38 @@ function editKeyword(onUpdate, keyword) {
    * below can be more than one element). Whatever's inside, the control
    * carrying the value itself is always the one with id `value`.
    *
-   * Three shapes, all of which accept anything typed - see the note on
+   * Five shapes, all of which accept anything typed - see the note on
    * createKeywordNameSelect below - so a keyword or value we don't have
    * tabled is never blocked:
    *
+   * - positional parameters (WINDOW, CAxx/CFxx, REFFLD) - free-text box plus
+   *   a control per parameter, which step aside if the value won't parse;
+   * - a record count (SFLSIZ, SFLPAG) - a number box, unless the value
+   *   already in it isn't a number;
    * - a space-separated list of known codes (DSPATR) - free-text box plus a
    *   checkbox per code;
-   * - a single known code (COLOR, EDTCDE, ...) - creatable combobox;
+   * - a single known code (COLOR, EDTCDE, SFLCTL's subfile records, ...) -
+   *   creatable combobox;
    * - anything else - the plain free-text box.
    */
   const createValueRow = (keywordName, value) => {
     const row = document.createElement(`div`);
     const options = keywordValueOptions(keywordName);
+    const parameters = keywordParameters(keywordName);
+    const numberRange = NUMBER_KEYWORDS[keywordName];
+
+    if (parameters) {
+      return createParameterRow(row, parameters, value);
+    }
+
+    if (numberRange && /^\d*$/.test(value)) {
+      const input = createInputField(`value`, value);
+      input.setAttribute(`type`, `number`);
+      input.setAttribute(`min`, numberRange.min);
+      input.setAttribute(`max`, numberRange.max);
+      row.appendChild(input);
+      return row;
+    }
 
     if (!options) {
       row.appendChild(createInputField(`value`, value));
@@ -3312,6 +3552,115 @@ function editKeyword(onUpdate, keyword) {
     }
 
     row.appendChild(select);
+    return row;
+  };
+
+  /**
+   * The Value row for a keyword with positional parameters. As with DSPATR,
+   * the text box stays the value's one source of truth: editing a parameter
+   * recomposes the box, and typing in the box re-reads the parameters. When
+   * what's typed can't be split into them - a WINDOW(recordname) reference,
+   * say, or anything hand-written we don't understand - the parameter
+   * controls are hidden and the box carries on as plain text, saved exactly
+   * as typed.
+   */
+  const createParameterRow = (row, parameters, value) => {
+    const input = createInputField(`value`, value);
+    row.appendChild(input);
+
+    const form = document.createElement(`div`);
+    form.style.marginTop = `0.25em`;
+    row.appendChild(form);
+
+    const note = document.createElement(`div`);
+    note.innerText = `This value doesn't fit the fields for this keyword, so edit it as text - it's saved exactly as typed.`;
+    note.style.fontSize = `0.9em`;
+    note.style.opacity = `0.75`;
+    note.style.marginTop = `0.35em`;
+    row.appendChild(note);
+
+    // The parameters as last parsed, so anything the form has no control
+    // for (WINDOW's *RSTCSR, say) survives being recomposed.
+    let parsed = parameters.parse(value);
+
+    /** @type {{field: any, control: any}[]} */
+    const controls = [];
+
+    const recompose = () => {
+      const params = { ...parsed };
+
+      controls.forEach(({ field, control }) => {
+        params[field.id] = field.type === `flag` ? control.checked : (control.value || ``).trim();
+      });
+
+      parsed = params;
+      const next = parameters.compose(params);
+      input.value = next;
+      input.setAttribute(`value`, next);
+    };
+
+    parameters.fields.forEach(field => {
+      let control;
+
+      if (field.type === `flag`) {
+        control = document.createElement(`vscode-checkbox`);
+        control.setAttribute(`label`, field.label);
+        control.style.display = `block`;
+        control.style.marginTop = `0.5em`;
+      } else {
+        form.appendChild(createLabel(field.label, ``));
+
+        if (field.type === `indicator`) {
+          control = document.createElement(`vscode-single-select`);
+          control.options = [
+            { label: `None`, value: `` },
+            ...Array.from({ length: 99 }, (_, index) => {
+              const indicator = String(index + 1).padStart(2, `0`);
+              return { label: indicator, value: indicator };
+            }),
+          ];
+        } else {
+          control = document.createElement(`vscode-textfield`);
+        }
+      }
+
+      control.dataset.parameter = field.id;
+      [`input`, `vsc-input`, `change`].forEach(eventName => control.addEventListener(eventName, recompose));
+
+      controls.push({ field, control });
+      form.appendChild(control);
+    });
+
+    const syncForm = () => {
+      parsed = parameters.parse(input.value || ``);
+      form.style.display = parsed ? `block` : `none`;
+      note.style.display = parsed ? `none` : `block`;
+
+      if (!parsed) {
+        return;
+      }
+
+      controls.forEach(({ field, control }) => {
+        if (field.type === `flag`) {
+          if (parsed[field.id]) {
+            control.setAttribute(`checked`, `true`);
+          } else {
+            control.removeAttribute(`checked`);
+          }
+        } else {
+          control.value = parsed[field.id];
+          if (field.type !== `indicator`) {
+            control.setAttribute(`value`, parsed[field.id]);
+          }
+        }
+      });
+    };
+
+    // Only typing in the box re-reads the form; the form writing the box
+    // doesn't fire these, so a half-filled form isn't torn down mid-edit.
+    [`input`, `vsc-input`, `change`].forEach(eventName => input.addEventListener(eventName, syncForm));
+    syncForm();
+
     return row;
   };
 
@@ -3400,19 +3749,15 @@ function editKeyword(onUpdate, keyword) {
   nameSelect.addEventListener(`change`, () => {
     const newName = (nameSelect.value || ``).toUpperCase();
     const currentValue = valueRow.querySelector(`#value`).value || ``;
-    const options = keywordValueOptions(newName);
 
     showHelpFor(newName);
 
     // Carry the value over to the new control only when it could still be
-    // right: anything goes in a free-text box, and every code in a
-    // multi-value list has to be one the new keyword knows, but offering a
-    // dropdown of COLOR's values while it still holds a leftover EDTCDE code
-    // would be claiming a value we know is wrong.
-    const codes = MULTI_VALUE_KEYWORDS.has(newName) ? valueTokens(currentValue) : [currentValue];
-    const stillValid = !options || codes.every(code => options.some(option => option.value === code.toUpperCase()));
-
-    const replacement = createValueRow(newName, stillValid ? currentValue : ``);
+    // right: anything goes in a free-text box, but offering a dropdown of
+    // COLOR's values while it still holds a leftover EDTCDE code - or
+    // WINDOW's fields while it holds RED - would be claiming a value we
+    // know is wrong.
+    const replacement = createValueRow(newName, valueFitsKeyword(newName, currentValue) ? currentValue : ``);
     group.replaceChild(replacement, valueRow);
     valueRow = replacement;
   });

@@ -81,13 +81,15 @@ multi-value, which is Tier 2's first item.
   additive: an untabled keyword hides the line. (Still *not* the
   hover/IntelliSense-in-the-raw-source idea we ruled out - that was tooling
   over the DDS text; this is help text in the sidebar form we already render.)
-- **Structured parameter forms for positional keywords.** `WINDOW` gets four
-  number boxes plus `*NOMSGLIN`; `CAxx`/`CFxx` gets indicator + optional
-  quoted text; `SFLCTL` gets a dropdown of the subfile record names actually
-  in the file; `SFLSIZ`/`SFLPAG` get one number; `REFFLD` gets a field name.
-  Parse the string on open, recompose on confirm, and **fall back to the plain
-  text box whenever parsing fails** - a hand-written value we can't parse must
-  stay editable.
+- ~~**Structured parameter forms for positional keywords.**~~ Done:
+  `KEYWORD_PARAMETERS` gives `WINDOW`, `CAxx`/`CFxx` and `REFFLD` a control
+  per parameter under the Value box, each with a `parse`/`compose` pair. As
+  with `DSPATR`, the box stays the source of truth: the fields rewrite it,
+  typing in it refills them, and a value that won't parse (a
+  `WINDOW(recordname)` reference, anything hand-written) hides them and
+  stays plain text. `SFLCTL` reuses the value dropdown, filled from the
+  file's `SFL` records; `SFLSIZ`/`SFLPAG` get a number box while the value
+  is a number.
 
 ## Tier 3 - larger, and the unifying refactor
 
@@ -102,7 +104,8 @@ multi-value, which is Tier 2's first item.
   big-bang rewrite.
 - **Soft, non-blocking validation warnings.** Flag an unrecognised value or a
   suspicious arity as a warning only. Never blocks confirm - see the ground
-  rule.
+  rule. One the parameter forms can already produce: a command key with text
+  but no response indicator (`CF12('Cancel')`), which DDS doesn't allow.
 
 ## Small, found on the way
 
