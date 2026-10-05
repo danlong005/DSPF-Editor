@@ -199,7 +199,7 @@ export interface WebuiSandbox {
 }
 
 /**
- * Loads webui/main.js into a fresh sandboxed context and returns it. Each
+ * Loads webui/keywords.js and main.js into a fresh sandboxed context and returns it. Each
  * call is fully independent - module-level state (activeDocument,
  * activeIndicators, etc.) isn't shared across calls.
  *
@@ -283,8 +283,13 @@ export function loadWebui(mode: `design` | `preview` = `design`): WebuiSandbox {
   };
   vm.createContext(sandbox);
 
-  const mainJs = readFileSync(join(__dirname, `../../webui/main.js`), `utf-8`);
-  vm.runInContext(mainJs, sandbox, { filename: `main.js` });
+  // Same order as index.html: keywords.js first, since main.js reads its
+  // tables. Separate scripts in one context share top-level declarations,
+  // just as classic <script> tags on one page do.
+  for (const script of [`keywords.js`, `main.js`]) {
+    const source = readFileSync(join(__dirname, `../../webui`, script), `utf-8`);
+    vm.runInContext(source, sandbox, { filename: script });
+  }
 
   return sandbox;
 }

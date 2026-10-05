@@ -13,7 +13,7 @@ Press `F5` in VS Code to build and launch an Extension Development Host with the
 
 ## Useful scripts
 
-- `npm test` - runs the Vitest suite (`src/ui/dspf.ts` parser tests, plus a `vm`-sandbox harness with pure-logic tests for `webui/main.js`)
+- `npm test` - runs the Vitest suite (`src/ui/dspf.ts` parser tests, plus a `vm`-sandbox harness with pure-logic tests for `webui/keywords.js` and `webui/main.js`)
 - `npm run check-types` - TypeScript type-checking
 - `npm run lint` - ESLint over `src/`
 - `npm run compile` - full build (frontend assets + type-check + lint + esbuild)
@@ -24,6 +24,7 @@ Press `F5` in VS Code to build and launch an Extension Development Host with the
 - `src/ui/index.ts` - `RendererWebview`, wires the webview to the DDS source document
 - `src/ui/dspf.ts` - the DDS parser/model and line-generators (framework-agnostic, fully unit-testable)
 - `webui/main.js` - the webview's rendering/UI logic (plain JS, no bundler)
+- `webui/keywords.js` - what the editor knows about DDS keywords (name list, value sets, help, parameter forms), read through `keywordInfo`; a plain script loaded before `main.js`
 - `samples/intricate.dspf` - a multi-format sample file for manually exercising the renderer
 
 ## Notes for AI-assisted contributions

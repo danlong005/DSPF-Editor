@@ -2364,6 +2364,51 @@ describe(`editKeyword - SFLSIZ/SFLPAG and SFLCTL`, () => {
   });
 });
 
+describe(`keywordInfo - one lookup for everything tabled about a keyword`, () => {
+  it(`gathers help, values, list-ness, number range and parameters in one object`, () => {
+    const sandbox = loadWebui();
+
+    const color = sandbox.keywordInfo(`COLOR`);
+    expect(color.help.levels).toEqual([`Field`]);
+    expect(color.values).toContainEqual({ label: `BLU - Blue`, value: `BLU` });
+    expect(color.multiValue).toBe(false);
+    expect(color.parameters).toBeUndefined();
+
+    expect(sandbox.keywordInfo(`DSPATR`).multiValue).toBe(true);
+    expect(sandbox.keywordInfo(`SFLPAG`).numberRange).toEqual({ min: 1, max: 9999 });
+    expect(sandbox.keywordInfo(`WINDOW`).parameters.fields.map((field: any) => field.id)).toContain(`lines`);
+  });
+
+  it(`is case-insensitive, and shares the CA/CF entries across all 48 command keys`, () => {
+    const sandbox = loadWebui();
+
+    expect(sandbox.keywordInfo(`color`).name).toBe(`COLOR`);
+    const cf17 = sandbox.keywordInfo(`CF17`);
+    expect(cf17.help).toBe(sandbox.keywordInfo(`CF01`).help);
+    expect(cf17.parameters).toBe(sandbox.keywordInfo(`CA05`).parameters);
+  });
+
+  it(`picks the printer-file help for a printer file`, () => {
+    const sandbox = loadWebui();
+
+    expect(sandbox.keywordInfo(`DSPATR`, `dds.prtf`).help).toBeUndefined();
+    expect(sandbox.keywordInfo(`COLOR`, `dds.prtf`).help.description).toMatch(/printed/);
+    expect(sandbox.keywordInfo(`SPACEB`, `dds.dspf`).help).toBeUndefined();
+  });
+
+  it(`finds nothing for an untabled keyword - not even something off a table's prototype`, () => {
+    const sandbox = loadWebui();
+
+    for (const name of [`MYOWNKW`, `constructor`, `__proto__`, `toString`]) {
+      const info = sandbox.keywordInfo(name);
+      expect(info.help).toBeUndefined();
+      expect(info.values).toBeUndefined();
+      expect(info.numberRange).toBeUndefined();
+      expect(info.parameters).toBeUndefined();
+    }
+  });
+});
+
 describe(`editKeyword - the keyword help line`, () => {
   function currentKeywordEditorGroup(sandbox: any): FakeElement {
     const area = sandbox.document.getElementById(`keywordEditorArea`);

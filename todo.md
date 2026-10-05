@@ -11,44 +11,40 @@ keyword or value we don't happen to know about - a smarter control is a
 suggestion, never a gate.
 
 We already do exactly this for the keyword *name*: `createKeywordNameSelect`
-(`webui/main.js:2791`) is a `vscode-single-select` with `combobox = true` and
+(`webui/main.js`) is a `vscode-single-select` with `combobox = true` and
 `creatable = true`, so you can pick from the list or just type something that
-isn't on it - and `createValueControl` right above it now mirrors that for the
-value. Every control below should keep doing the same. Note the workaround for
-`.value` only selecting an entry already in `.options` - `CONTRIBUTING.md`
-documents that gotcha, and it bit again in `createValueControl`.
+isn't on it - and every Value control (`createValueRow`) mirrors that: a
+creatable dropdown, or a text box that stays the source of truth under
+checkboxes or parameter fields. Every control below should keep doing the
+same. Note the workaround for `.value` only selecting an entry already in
+`.options` - `CONTRIBUTING.md` documents that gotcha.
 
 ## Where we are today
 
-Tier 1 is done (shipped after 0.3.3): `KEYWORD_VALUES` (`webui/main.js:2640`)
-tables the single-token value sets, `keywordValueOptions`
-(`webui/main.js:2694`) turns one into dropdown options, `createValueControl`
-(`webui/main.js:2766`) picks the dropdown or the plain textfield, and the
-name select rebuilds that row on change. `DDS_KEYWORDS` (`webui/main.js:2604`)
-now spreads in all 48 `COMMAND_KEY_KEYWORDS`.
+Tiers 1 and 2 are done, and so is Tier 3's metadata module: all keyword
+knowledge lives in `webui/keywords.js` - the name list, value sets, help for
+both file types, number ranges, and the parameter forms with their
+`parse`/`compose` pairs - and the editor reads it through one lookup,
+`keywordInfo(name, documentType)`. The tables stay separate in the source
+because they're transcribed from different IBM references; `keywordInfo` is
+what joins them.
 
-What's still true: there is no *structural* keyword knowledge in the editor -
-`DSPATR(ZZ)` and a one-arg `WINDOW(1)` still save silently, and nothing knows
-a keyword's arity. Level and description are now tabled (see Tier 2 below) but
-only as help text - nothing checks a keyword against the level it's coded at.
-The knowledge that does exist is still scattered, now across four tables
-rather than two:
+What's still true: nothing *checks* a keyword. `DSPATR(ZZ)`, a one-arg
+`WINDOW(1)` and `SFLPAG(ABC)` all save silently - the forms just step aside
+for a value they can't read - and nothing checks a keyword against the level
+it's coded at. That's the validation item below.
 
-- `DDS_KEYWORDS` - a flat `string[]` of names, no arity; `KEYWORD_VALUES`,
-  `KEYWORD_HELP` and `PRINTER_KEYWORD_HELP` sit beside it as separate tables,
-  each keyed by name again.
-- `colours` / `dateFormats` / `timeFormats` (`webui/main.js:49-79`) - value
-  maps for the canvas, two of which `KEYWORD_VALUES` now also feeds from.
-- ~10 ad-hoc `keyword.name === 'X'` special cases: `WINDOW`
-  (`src/ui/dspf.ts:810`), `WDWTITLE`/`WDWBORDER` (`webui/main.js:466-567`),
-  `DSPSIZ`, `PAGSIZ`, `SFLCTL`/`SFLPAG`, and the printer spacing keywords
-  (`src/ui/dspf.ts:287`).
+Still outside `keywords.js`, deliberately: the ~10 `keyword.name === 'X'`
+special cases in rendering (`WINDOW` in `src/ui/dspf.ts`, `WDWTITLE`/
+`WDWBORDER`, `DSPSIZ`, `PAGSIZ`, `SFLCTL`/`SFLPAG`, the printer spacing
+keywords) and the canvas `colours` map. They're behaviour - how a keyword
+draws - not what the editor knows about one, and `src/ui/dspf.ts` can't share
+a webview script without a build step anyway.
 
 The model is `interface Keyword { name, value?, conditions }`
-(`src/ui/dspf.ts:862`) - **the value is one opaque string end to end**, pasted
-verbatim inside `(...)` by `getLinesForKeyword` (`src/ui/dspf.ts:546`). Any
-structured editing has to parse on open and recompose on confirm, or else
-change that type and ripple through parse, serialize, and every consumer.
+(`src/ui/dspf.ts`) - **the value is one opaque string end to end**, pasted
+verbatim inside `(...)` by `getLinesForKeyword`. The parameter forms parse it
+on open and recompose it on every edit rather than changing that type.
 
 Good news on seed data: `.claude/skills/dds/SKILL.md` already holds the
 richest keyword tables in the repo (DSPATR values, COLOR, EDTCDE, CHECK,
@@ -93,15 +89,13 @@ multi-value, which is Tier 2's first item.
 
 ## Tier 3 - larger, and the unifying refactor
 
-- **A real keyword metadata module.** One table - name to level, arity, param
-  specs, allowed values, description - feeding the name list, the value
-  control, the help text, and eventually validation. Consolidates everything
-  currently split across `DDS_KEYWORDS`, the three render maps, and the ad-hoc
-  special cases. Open question: `webui/main.js` is plain script with no module
-  system, so the table either lives in the webview or needs a new `webui/`
-  script wired into `index.html`; sharing it with `src/ui/dspf.ts` isn't free.
-  Probably worth doing incrementally underneath Tier 1 rather than as a
-  big-bang rewrite.
+- ~~**A real keyword metadata module.**~~ Done: `webui/keywords.js`, a
+  plain script loaded before `main.js` (`{keywords}` in `index.html`), holds
+  every keyword table and the parameter parse/compose functions, with
+  `keywordInfo` as the one way in. It doesn't touch the DOM or the open
+  document - `SFLCTL`'s subfile list and the file type are worked out in
+  `main.js` and passed in. The rendering special cases stay where they are
+  (see above).
 - **Soft, non-blocking validation warnings.** Flag an unrecognised value or a
   suspicious arity as a warning only. Never blocks confirm - see the ground
   rule. One the parameter forms can already produce: a command key with text

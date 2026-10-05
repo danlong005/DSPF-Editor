@@ -290,6 +290,7 @@ export class RendererWebview {
     const withCacheBust = (uri: Uri) => uri.with({ query: cacheBust }).toString();
 
     const fileVariables = {
+      '{keywords}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `keywords.js`)),
       '{main}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `main.js`)),
       '{elements}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `scripts`, `vscode-elements.js`)),
       '{styles}': withCacheBust(toUri(webview, this.extensionPath, `webui`, `styles.css`)),
