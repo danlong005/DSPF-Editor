@@ -82,25 +82,33 @@ const DDS_KEYWORDS = [
 ].sort();
 
 /**
- * Value sets for keywords whose value is a single token, keyed by keyword
- * name: value code to what it means. Feeds the Value control's dropdown -
- * a keyword that isn't here keeps the plain free-text box, and even one
- * that is here stays a creatable combobox, so a value we don't have tabled
- * (or a newer one IBM has added since) can still just be typed.
+ * Value sets for keywords whose value is a code from a fixed list, keyed by
+ * keyword name: value code to what it means. Feeds the Value control - a
+ * dropdown, or a checkbox per code for the keywords in MULTI_VALUE_KEYWORDS -
+ * and the unknown-value warning. A keyword that isn't here keeps the plain
+ * free-text box, and even one that is stays typeable, so a value we don't
+ * have tabled (or a newer one IBM has added since) can still be entered.
  *
- * Deliberately excludes the space-separated multi-value keywords - DSPATR(HI UL)
- * can't be expressed by a single-select at all.
+ * These are display-file values: a printer file's COLOR is BLUE, not BLU.
  */
 const KEYWORD_VALUES = {
   CHECK: {
     AB: `Allow blank`,
-    ER: `Erase to end of field on first keystroke`,
+    ER: `Automatic record advance when the last position is typed`,
+    FE: `Field exit key required to leave the field`,
     LC: `Lowercase allowed`,
-    ME: `Mandatory entry`,
+    M10: `Modulus 10 self-check`,
+    M10F: `Modulus 10 self-check (IBM variant)`,
+    M11: `Modulus 11 self-check`,
+    M11F: `Modulus 11 self-check (IBM variant)`,
+    ME: `Mandatory enter`,
     MF: `Mandatory fill`,
-    RB: `Right-to-left blank fill`,
-    RL: `Right-to-left entry`,
+    RB: `Right-adjust, blank fill`,
+    RL: `Cursor moves right to left within the field`,
+    RLTB: `Cursor moves right to left, top to bottom between fields`,
+    RZ: `Right-adjust, zero fill`,
     VN: `Validate name`,
+    VNE: `Validate name, extended`,
   },
   COLOR: {
     GRN: `Green (the default)`,
@@ -111,23 +119,37 @@ const KEYWORD_VALUES = {
     PNK: `Pink`,
     BLU: `Blue`,
   },
-  // The same maps the canvas renders these fields from, so the dropdown and
-  // what you see on screen can't drift apart.
-  DATFMT: dateFormats,
+  // The same map the canvas renders these fields from, so the dropdown and
+  // what you see on screen can't drift apart - plus *JOB, which the canvas
+  // has no fixed picture for since it's whatever the job says at run time.
+  DATFMT: { '*JOB': `The job's date format`, ...dateFormats },
+  // The standard edit codes. A second parameter - EDTCDE(Z *) for asterisk
+  // fill, EDTCDE(1 $) for a floating currency symbol - is allowed after any
+  // of them, so only the first code is ever checked against this.
   EDTCDE: {
-    1: `No sign, no comma, no zero suppression`,
-    2: `No sign, comma, no zero suppression`,
-    3: `No sign, no comma, zero suppression`,
-    4: `No sign, comma, zero suppression`,
-    J: `CR for negative, no comma`,
-    K: `CR for negative, comma`,
-    L: `CR for negative, no comma, zero suppression`,
-    M: `CR for negative, comma, zero suppression`,
-    N: `Minus for negative, no comma`,
-    O: `Minus for negative, comma`,
-    P: `Minus for negative, no comma, zero suppression`,
-    Q: `Minus for negative, comma, zero suppression`,
-    Y: `Date format (slashes)`,
+    1: `Commas, zero shown as .00 or 0, no sign`,
+    2: `Commas, zero blank, no sign`,
+    3: `No commas, zero shown as .00 or 0, no sign`,
+    4: `No commas, zero blank, no sign`,
+    5: `User-defined (QEDIT5)`,
+    6: `User-defined (QEDIT6)`,
+    7: `User-defined (QEDIT7)`,
+    8: `User-defined (QEDIT8)`,
+    9: `User-defined (QEDIT9)`,
+    A: `Commas, zero shown as .00 or 0, CR for negative`,
+    B: `Commas, zero blank, CR for negative`,
+    C: `No commas, zero shown as .00 or 0, CR for negative`,
+    D: `No commas, zero blank, CR for negative`,
+    J: `Commas, zero shown as .00 or 0, trailing minus`,
+    K: `Commas, zero blank, trailing minus`,
+    L: `No commas, zero shown as .00 or 0, trailing minus`,
+    M: `No commas, zero blank, trailing minus`,
+    N: `Commas, zero shown as .00 or 0, leading minus`,
+    O: `Commas, zero blank, leading minus`,
+    P: `No commas, zero shown as .00 or 0, leading minus`,
+    Q: `No commas, zero blank, leading minus`,
+    W: `Date with slashes, four-digit year (nnnn/nn/nn)`,
+    Y: `Date with slashes (nn/nn/nn)`,
     Z: `Suppress leading zeros, no sign`,
   },
   DSPATR: {
@@ -140,6 +162,8 @@ const KEYWORD_VALUES = {
     PC: `Position cursor here`,
     CS: `Column separator`,
     MDT: `Set modified data tag`,
+    OID: `Operator identification (magnetic stripe reader)`,
+    SP: `Select by light pen`,
   },
   SFLEND: {
     '*MORE': `"More..." at the bottom of a full page`,
@@ -152,10 +176,11 @@ const KEYWORD_VALUES = {
 /**
  * Keywords whose value is a space-separated LIST of the codes in
  * KEYWORD_VALUES rather than a single one - DSPATR(HI UL) is two display
- * attributes, not a value called "HI UL". A single-select can't express
- * that, so these get the checkbox treatment instead (see createValueControl).
+ * attributes, not a value called "HI UL", and CHECK(ME FE) is two checks.
+ * A single-select can't express that, so these get the checkbox treatment
+ * instead (see createValueRow).
  */
-const MULTI_VALUE_KEYWORDS = new Set([`DSPATR`]);
+const MULTI_VALUE_KEYWORDS = new Set([`CHECK`, `DSPATR`]);
 
 /**
  * Splits a space-separated keyword value into its individual codes.
@@ -570,16 +595,80 @@ function composeReferenceFieldValue(params) {
 }
 
 /**
+ * What's wrong with a WINDOW value, if anything. A lone record name is fine -
+ * WINDOW(WINREC) shares that record's window - even though the fields can't
+ * show it.
+ * @param {string} value
+ */
+function windowProblem(value) {
+  const trimmed = (value || ``).trim();
+
+  if (!trimmed) {
+    return `WINDOW needs a size, *DFT and a size, or the name of the window record it shares`;
+  }
+
+  if (new RegExp(`^${DDS_NAME}$`, `i`).test(trimmed) || parseWindowValue(trimmed)) {
+    return undefined;
+  }
+
+  return `WINDOW takes a start line, start position, lines and columns (or *DFT, lines and columns), or a window record's name`;
+}
+
+/**
+ * @param {string} value
+ * @param {string} name the command key, e.g. CF03
+ */
+function commandKeyProblem(value, name) {
+  const params = parseCommandKeyValue(value);
+
+  if (!params) {
+    return `${name} takes a response indicator from 01 to 99, optionally followed by quoted text`;
+  }
+
+  return params.text && !params.indicator ? `${name}'s text needs a response indicator in front of it` : undefined;
+}
+
+/** @param {string} value */
+function referenceFieldProblem(value) {
+  const params = parseReferenceFieldValue(value);
+
+  if (!params) {
+    return `REFFLD takes a field name, optionally record/field, then optionally library/file or *SRC`;
+  }
+
+  return params.field ? undefined : `REFFLD needs the name of the field it refers to`;
+}
+
+/**
+ * Display-file keywords that take no value at all, so one coded with a value
+ * is a mistake. Only the ones IBM's reference is explicit about - and only
+ * for display files, since a printer file's OVERLAY, say, does take one.
+ */
+const NO_VALUE_KEYWORDS = new Set([
+  `ALARM`, `ASSUME`, `BLINK`, `FRCDTA`, `INVITE`, `INZRCD`, `KEEP`, `LOGINP`, `LOGOUT`,
+  `OVERLAY`, `PROTECT`, `PUTOVR`, `RMVWDW`,
+  `SFL`, `SFLCLR`, `SFLDLT`, `SFLDSP`, `SFLDSPCTL`, `SFLINZ`, `SFLNXTCHG`, `SFLRNA`,
+]);
+
+/**
+ * Keywords in KEYWORD_VALUES whose value can be left out - SFLEND on its own
+ * means SFLEND(*PLUS). Every other one there needs a value.
+ */
+const OPTIONAL_VALUE_KEYWORDS = new Set([`SFLEND`]);
+
+/**
  * Keywords whose value is several positional parameters, each given its own
  * control under the Value box. `parse` turns the value string into the
  * parameters (or undefined when it can't, and the form steps aside) and
- * `compose` turns them back. Each field's `id` is the parameter's key;
- * `type` is `text` unless said otherwise.
+ * `compose` turns them back. `problem` says what's wrong with a value, for
+ * the editor's warnings, or returns undefined. Each field's `id` is the
+ * parameter's key; `type` is `text` unless said otherwise.
  *
  * `CA`/`CF` stand in for all 48 command keys, as in KEYWORD_HELP.
  */
 const KEYWORD_PARAMETERS = {
   CA: {
+    problem: commandKeyProblem,
     fields: [
       { id: `indicator`, label: `Response indicator`, type: `indicator` },
       { id: `text`, label: `Text - describes the key, documentation only (optional)` },
@@ -588,6 +677,7 @@ const KEYWORD_PARAMETERS = {
     compose: composeCommandKeyValue,
   },
   REFFLD: {
+    problem: referenceFieldProblem,
     fields: [
       { id: `field`, label: `Field` },
       { id: `record`, label: `Record format (optional)` },
@@ -597,6 +687,7 @@ const KEYWORD_PARAMETERS = {
     compose: composeReferenceFieldValue,
   },
   WINDOW: {
+    problem: windowProblem,
     fields: [
       { id: `startLine`, label: `Start line (blank for *DFT)` },
       { id: `startPosition`, label: `Start position (blank for *DFT)` },
@@ -649,4 +740,103 @@ function keywordInfo(name, documentType) {
     numberRange: lookup(NUMBER_KEYWORDS, keywordName),
     parameters: lookup(KEYWORD_PARAMETERS, key),
   };
+}
+
+/**
+ * "File or record level", "File, record or field level" - the levels a
+ * keyword is legal at, written out for the hint line.
+ * @param {string[]} levels
+ */
+function keywordLevelText(levels) {
+  const named = levels.map((level, index) => index === 0 ? level : level.toLowerCase());
+  const last = named[named.length - 1];
+  const leading = named.slice(0, -1);
+
+  return `${leading.length > 0 ? `${leading.join(`, `)} or ${last}` : last} level`;
+}
+
+/**
+ * Anything that looks wrong about a keyword as coded, one sentence each, for
+ * the editor to show as a warning. Never a gate - see the ground rule in
+ * todo.md - so this only ever reports what the tables here can actually back
+ * up, and says nothing about a keyword or value they don't cover.
+ *
+ * Checks the name (a typo, or a keyword from the other file type), the level
+ * it's coded at when `level` is given, and the value: a code off its list, a
+ * count that isn't a number, a value where none belongs, or positional
+ * parameters that don't add up.
+ * @param {string} name
+ * @param {string} value as it will be saved - already uppercased outside quotes
+ * @param {{documentType?: string, level?: string}} [context] `level` is `File`, `Record` or `Field`
+ */
+function keywordWarnings(name, value, context = {}) {
+  const { documentType, level } = context;
+  const info = keywordInfo(name, documentType);
+  const keywordName = info.name;
+  const trimmed = (value || ``).trim();
+  const isPrinterFile = documentType === `dds.prtf`;
+
+  if (!keywordName) {
+    return [];
+  }
+
+  if (!info.help) {
+    const otherFileType = isPrinterFile ? `dds.dspf` : `dds.prtf`;
+
+    if (keywordInfo(keywordName, otherFileType).help) {
+      return [isPrinterFile
+        ? `${keywordName} is a display-file keyword - printer files don't have it`
+        : `${keywordName} is a printer-file keyword - display files don't have it`];
+    }
+
+    // Nothing to say about the value of a keyword we don't know at all.
+    return DDS_KEYWORDS.includes(keywordName) ? [] : [`${keywordName} isn't a keyword we know - check the spelling`];
+  }
+
+  const warnings = [];
+
+  if (level && !info.help.levels.includes(level)) {
+    const allowed = keywordLevelText(info.help.levels);
+    warnings.push(`${keywordName} belongs at ${allowed.charAt(0).toLowerCase()}${allowed.slice(1)}, not ${level.toLowerCase()} level`);
+  }
+
+  // The value checks below are all display-file knowledge - a printer
+  // file's COLOR, OVERLAY and the rest take different values entirely.
+  if (isPrinterFile) {
+    return warnings;
+  }
+
+  if (info.parameters) {
+    const problem = info.parameters.problem(trimmed, keywordName);
+    if (problem) {
+      warnings.push(problem);
+    }
+  } else if (info.numberRange) {
+    const { min, max } = info.numberRange;
+    const number = Number(trimmed);
+
+    if (!/^\d+$/.test(trimmed) || number < min || number > max) {
+      warnings.push(`${keywordName} takes a number from ${min} to ${max}`);
+    }
+  } else if (NO_VALUE_KEYWORDS.has(keywordName)) {
+    if (trimmed) {
+      warnings.push(`${keywordName} doesn't take a value`);
+    }
+  } else if (info.values) {
+    // Only the first code of a single-value keyword - EDTCDE(Z *) has a fill
+    // character after the code - and never a program field (DSPATR(&ATTR)).
+    const tokens = valueTokens(trimmed);
+    const codes = (info.multiValue ? tokens : tokens.slice(0, 1)).filter(token => !token.startsWith(`&`));
+    const unknown = codes.filter(code => !info.values.some(option => option.value === code.toUpperCase()));
+
+    if (tokens.length === 0 && !OPTIONAL_VALUE_KEYWORDS.has(keywordName)) {
+      warnings.push(`${keywordName} needs a value`);
+    } else if (unknown.length === 1) {
+      warnings.push(`${unknown[0]} isn't a ${keywordName} value we know`);
+    } else if (unknown.length > 1) {
+      warnings.push(`${unknown.slice(0, -1).join(`, `)} and ${unknown[unknown.length - 1]} aren't ${keywordName} values we know`);
+    }
+  }
+
+  return warnings;
 }

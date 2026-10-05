@@ -2409,6 +2409,173 @@ describe(`keywordInfo - one lookup for everything tabled about a keyword`, () =>
   });
 });
 
+describe(`keywordWarnings - soft checks, never a gate`, () => {
+  const display = { documentType: `dds.dspf` };
+  const printer = { documentType: `dds.prtf` };
+
+  it(`says nothing about ordinary, correct DDS`, () => {
+    const sandbox = loadWebui();
+    const correct: [string, string, string][] = [
+      [`COLOR`, `BLU`, `Field`],
+      [`DSPATR`, `HI UL &ATTR`, `Field`],
+      [`CHECK`, `ME FE`, `Field`],
+      [`EDTCDE`, `Z *`, `Field`],
+      [`DATFMT`, `*JOB`, `Field`],
+      [`SFLEND`, ``, `Record`],
+      [`SFLEND`, `*SCRBAR *MORE`, `Record`],
+      [`SFLPAG`, `0010`, `Record`],
+      [`SFLDSP`, ``, `Record`],
+      [`WINDOW`, `10 2 12 75 *NOMSGLIN`, `Record`],
+      [`WINDOW`, `WINREC`, `Record`],
+      [`CF03`, `03 'Exit'`, `File`],
+      [`CA12`, ``, `Record`],
+      [`REFFLD`, `CUSREC/CUSTNO *SRC`, `Field`],
+      [`TEXT`, `'Anything at all'`, `Record`],
+    ];
+    for (const [name, value, level] of correct) {
+      expect(sandbox.keywordWarnings(name, value, { ...display, level }), `${name}(${value})`).toEqual([]);
+    }
+  });
+
+  it(`flags a value that isn't on the keyword's list`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.keywordWarnings(`COLOR`, `PURPLE`, display)).toEqual([`PURPLE isn't a COLOR value we know`]);
+    expect(sandbox.keywordWarnings(`DSPATR`, `HI ZZ QQ`, display)).toEqual([`ZZ and QQ aren't DSPATR values we know`]);
+    expect(sandbox.keywordWarnings(`COLOR`, ``, display)).toEqual([`COLOR needs a value`]);
+  });
+
+  it(`flags positional parameters that don't add up`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.keywordWarnings(`WINDOW`, `1`, display)[0]).toMatch(/^WINDOW takes/);
+    expect(sandbox.keywordWarnings(`WINDOW`, ``, display)[0]).toMatch(/^WINDOW needs/);
+    expect(sandbox.keywordWarnings(`CF12`, `'Cancel'`, display)).toEqual([`CF12's text needs a response indicator in front of it`]);
+    expect(sandbox.keywordWarnings(`CA03`, `EXIT`, display)[0]).toMatch(/^CA03 takes a response indicator/);
+    expect(sandbox.keywordWarnings(`REFFLD`, ``, display)).toEqual([`REFFLD needs the name of the field it refers to`]);
+  });
+
+  it(`flags a count that isn't a number in range, and a value where none belongs`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.keywordWarnings(`SFLPAG`, `ABC`, display)).toEqual([`SFLPAG takes a number from 1 to 9999`]);
+    expect(sandbox.keywordWarnings(`SFLSIZ`, `0`, display)).toEqual([`SFLSIZ takes a number from 1 to 9999`]);
+    expect(sandbox.keywordWarnings(`SFLCLR`, `YES`, display)).toEqual([`SFLCLR doesn't take a value`]);
+  });
+
+  it(`flags a keyword coded at a level it doesn't belong at`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.keywordWarnings(`SFLPAG`, `10`, { ...display, level: `Field` }))
+      .toEqual([`SFLPAG belongs at record level, not field level`]);
+    expect(sandbox.keywordWarnings(`CF03`, `03`, { ...display, level: `Field` }))
+      .toEqual([`CF03 belongs at file or record level, not field level`]);
+    // No level given (nothing to compare against), no warning.
+    expect(sandbox.keywordWarnings(`SFLPAG`, `10`, display)).toEqual([]);
+  });
+
+  it(`flags a typo'd name, and a keyword from the other file type`, () => {
+    const sandbox = loadWebui();
+    expect(sandbox.keywordWarnings(`COLR`, `BLU`, display)).toEqual([`COLR isn't a keyword we know - check the spelling`]);
+    expect(sandbox.keywordWarnings(`DSPATR`, `HI`, printer)).toEqual([`DSPATR is a display-file keyword - printer files don't have it`]);
+    expect(sandbox.keywordWarnings(`SPACEB`, `1`, display)).toEqual([`SPACEB is a printer-file keyword - display files don't have it`]);
+  });
+
+  it(`leaves alone the names in our list that IBM's references don't cover`, () => {
+    const sandbox = loadWebui();
+    // Whether these belong at all is its own open question in todo.md.
+    expect(sandbox.keywordWarnings(`PAGSIZ`, `66 132`, printer)).toEqual([]);
+  });
+
+  it(`doesn't hold a printer file to display-file values`, () => {
+    const sandbox = loadWebui();
+    // A printer file's COLOR is BLUE, not BLU, and its OVERLAY takes a value.
+    expect(sandbox.keywordWarnings(`COLOR`, `BLUE`, printer)).toEqual([]);
+    expect(sandbox.keywordWarnings(`OVERLAY`, `MYOVL`, printer)).toEqual([]);
+  });
+});
+
+describe(`editKeyword - warnings`, () => {
+  function currentKeywordEditorGroup(sandbox: any): FakeElement {
+    const area = sandbox.document.getElementById(`keywordEditorArea`);
+    return area.children.find((el: FakeElement) => el.tagName === `VSCODE-FORM-GROUP`);
+  }
+
+  function warningText(formGroup: FakeElement): string[] {
+    const lines = formGroup.querySelector(`#keywordWarnings`);
+    return lines.style.display === `none` ? [] : lines.children.map(line => line.children[1].innerText);
+  }
+
+  it(`shows what's wrong under the value, and still saves it on Confirm`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
+    let saved: any;
+    sandbox.editKeyword((keyword: any) => { saved = keyword; }, { name: `SFLPAG`, value: `10`, conditions: [] }, `Field`);
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    expect(warningText(formGroup)).toEqual([`SFLPAG belongs at record level, not field level.`]);
+
+    formGroup.children[formGroup.children.length - 1].onclick();
+    expect(saved).toMatchObject({ name: `SFLPAG`, value: `10` });
+  });
+
+  it(`updates as the value is typed, checking it as it'll be saved`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
+    sandbox.editKeyword(() => {}, { name: `DSPATR`, value: `HI`, conditions: [] }, `Field`);
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    expect(warningText(formGroup)).toEqual([]);
+
+    const box = formGroup.querySelector(`#value`);
+    box.value = `hi zz`;
+    box.trigger(`input`);
+    expect(warningText(formGroup)).toEqual([`ZZ isn't a DSPATR value we know.`]);
+  });
+
+  it(`updates when a parameter field rewrites the value`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
+    sandbox.editKeyword(() => {}, { name: `CF12`, value: `12 'Cancel'`, conditions: [] }, `Record`);
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const visit = (el: FakeElement): FakeElement | undefined =>
+      el.dataset.parameter === `indicator` ? el : el.children.map(visit).find(found => found);
+    const indicator = visit(formGroup)!;
+    indicator.value = ``;
+    indicator.trigger(`change`);
+
+    expect(warningText(formGroup)).toEqual([`CF12's text needs a response indicator in front of it.`]);
+  });
+
+  it(`re-checks against the newly picked keyword`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
+    sandbox.editKeyword(() => {}, { name: `TEXT`, value: ``, conditions: [] }, `Field`);
+
+    const formGroup = currentKeywordEditorGroup(sandbox);
+    const select = formGroup.querySelector(`#keyword`);
+    select.value = `SFLCLR`;
+    select.trigger(`change`);
+
+    expect(warningText(formGroup)).toEqual([`SFLCLR belongs at record level, not field level.`]);
+  });
+});
+
+describe(`createKeywordPanel - flagging keywords with warnings`, () => {
+  it(`gives a keyword with a warning a warning icon and the reasons on hover`, () => {
+    const sandbox = loadWebui();
+    sandbox.loadDDS({ formats: [] }, `dds.dspf`, false);
+    const panel = sandbox.createKeywordPanel(`kw`, [
+      { name: `COLOR`, value: `BLU`, conditions: [] },
+      { name: `COLOR`, value: `PURPLE`, conditions: [] },
+    ], () => {}, `Field`);
+
+    const tree = panel.children.find((el: FakeElement) => el.tagName === `VSCODE-TREE`);
+    const [good, bad] = tree.data;
+    expect(good.icons.leaf).toBe(`circle-filled`);
+    expect(good.tooltip).toBeUndefined();
+    expect(bad.icons.leaf).toBe(`warning`);
+    expect(bad.tooltip).toBe(`PURPLE isn't a COLOR value we know`);
+  });
+});
+
 describe(`editKeyword - the keyword help line`, () => {
   function currentKeywordEditorGroup(sandbox: any): FakeElement {
     const area = sandbox.document.getElementById(`keywordEditorArea`);

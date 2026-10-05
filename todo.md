@@ -29,10 +29,9 @@ both file types, number ranges, and the parameter forms with their
 because they're transcribed from different IBM references; `keywordInfo` is
 what joins them.
 
-What's still true: nothing *checks* a keyword. `DSPATR(ZZ)`, a one-arg
-`WINDOW(1)` and `SFLPAG(ABC)` all save silently - the forms just step aside
-for a value they can't read - and nothing checks a keyword against the level
-it's coded at. That's the validation item below.
+Keywords are checked as well, as warnings only: a value off its list, a
+keyword at the wrong level, a misspelt name, a value where none belongs, or
+positional parameters that don't add up (see the validation item below).
 
 Still outside `keywords.js`, deliberately: the ~10 `keyword.name === 'X'`
 special cases in rendering (`WINDOW` in `src/ui/dspf.ts`, `WDWTITLE`/
@@ -96,10 +95,14 @@ multi-value, which is Tier 2's first item.
   document - `SFLCTL`'s subfile list and the file type are worked out in
   `main.js` and passed in. The rendering special cases stay where they are
   (see above).
-- **Soft, non-blocking validation warnings.** Flag an unrecognised value or a
-  suspicious arity as a warning only. Never blocks confirm - see the ground
-  rule. One the parameter forms can already produce: a command key with text
-  but no response indicator (`CF12('Cancel')`), which DDS doesn't allow.
+- ~~**Soft, non-blocking validation warnings.**~~ Done: `keywordWarnings`
+  (`webui/keywords.js`) checks a keyword's name, its level, and its value
+  against what's tabled, and the editor shows the result under the Value
+  field as you type and as a warning icon in the keyword list. Never blocks
+  Confirm. Value checks are display-file only (`KEYWORD_VALUES` is display
+  values), and `NO_VALUE_KEYWORDS` only lists keywords IBM is explicit about.
+  Not covered yet: cross-keyword checks like `SFLSIZ` >= `SFLPAG`, or a
+  `SFLCTL` naming a record that isn't a subfile.
 
 ## Small, found on the way
 

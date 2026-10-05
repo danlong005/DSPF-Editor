@@ -1967,7 +1967,7 @@ function createFormatKeywordsTab() {
   const html = currentFormat
     ? createKeywordPanel(`keywords-${currentFormat.name}`, currentFormat.keywords, isPreviewMode ? undefined : (keywords) => {
       sendFormatHeaderUpdate(currentFormat.name, keywords);
-    })
+    }, `Record`)
     : document.createElement(`div`);
 
   return { title: `Format Keywords`, html };
@@ -1988,7 +1988,7 @@ function createFileKeywordsTab() {
   const html = globalFormat
     ? createKeywordPanel(`keywords-${globalFormat.name}`, globalFormat.keywords, isPreviewMode ? undefined : (keywords) => {
       sendFormatHeaderUpdate(globalFormat.name, keywords);
-    })
+    }, `File`)
     : document.createElement(`div`);
 
   return { title: `File Keywords`, html };
@@ -2085,7 +2085,7 @@ function updateSelectedFieldSidebar(fieldInfo) {
       html: createKeywordPanel(`keywords-${fieldInfo.name}`, fieldInfo.keywords, (keywords) => {
         fieldInfo.keywords = keywords;
         sendFieldUpdate(lastSelectedFormat, fieldInfo.name, fieldInfo);
-      }),
+      }, `Field`),
     },
   ]);
 
@@ -2431,8 +2431,10 @@ window.addEventListener(`DOMContentLoaded`, () => {
  * @param {string} id
  * @param {Keyword[]} inputKeywords 
  * @param {(keywords: Keyword[]) => void} [onUpdate]
+ * @param {string} [level] `File`, `Record` or `Field` - where these keywords
+ * are coded, so a keyword that doesn't belong there can be flagged
  */
-function createKeywordPanel(id, inputKeywords, onUpdate) {
+function createKeywordPanel(id, inputKeywords, onUpdate, level) {
   /** @type {Keyword[]} */
   const keywords = JSON.parse(JSON.stringify(inputKeywords));
 
@@ -2463,8 +2465,16 @@ function createKeywordPanel(id, inputKeywords, onUpdate) {
 
   const rerenderTree = () => {
     tree.data = keywords.map((keyword, index) => {
+      // Flagged, never blocked - the keyword is listed and editable as-is,
+      // just with a warning icon and the reasons on hover.
+      const warnings = keywordWarnings(keyword.name, keyword.value || ``, { documentType: activeDocumentType, level });
+
       return {
-        icons,
+        icons: warnings.length > 0 ? { ...icons, leaf: `warning` } : icons,
+        tooltip: warnings.length > 0 ? warnings.join(`\n`) : undefined,
+        decorations: warnings.length > 0
+          ? [{ appearance: `filled-circle`, color: `var(--vscode-editorWarning-foreground)` }]
+          : undefined,
         label: keyword.name,
         // The item's identity for edit/delete. It has to be the position in
         // `keywords`, not the keyword itself: two entries can be identical
@@ -2514,7 +2524,7 @@ function createKeywordPanel(id, inputKeywords, onUpdate) {
           clearKeywordEditor();
           rerenderTree();
           onUpdate(keywords);
-        }, currentKeyword);
+        }, currentKeyword, level);
         break;
     }
   });
@@ -2535,7 +2545,7 @@ function createKeywordPanel(id, inputKeywords, onUpdate) {
         clearKeywordEditor();
         rerenderTree();
         onUpdate(keywords);
-      });
+      }, undefined, level);
     });
 
     section.appendChild(newKeyword);
@@ -2686,19 +2696,6 @@ function keywordHelpText(name) {
 }
 
 /**
- * "File or record level", "File, record or field level" - the levels a
- * keyword is legal at, written out for the hint line.
- * @param {string[]} levels
- */
-function keywordLevelText(levels) {
-  const named = levels.map((level, index) => index === 0 ? level : level.toLowerCase());
-  const last = named[named.length - 1];
-  const leading = named.slice(0, -1);
-
-  return `${leading.length > 0 ? `${leading.join(`, `)} or ${last}` : last} level`;
-}
-
-/**
  * The dropdown options for a keyword's value, or undefined for a keyword
  * we have no value set for (which keeps the plain text box). The option
  * label carries the meaning so the list is readable; the value that gets
@@ -2784,8 +2781,10 @@ function uppercaseOutsideQuotes(text) {
 /**
  * @param {(keyword: Keyword) => void} onUpdate
  * @param {Keyword} [keyword]
+ * @param {string} [level] `File`, `Record` or `Field` - where the keyword is
+ * being coded, for the warning about one that doesn't belong there
  */
-function editKeyword(onUpdate, keyword) {
+function editKeyword(onUpdate, keyword, level) {
   const group = document.createElement(`vscode-form-group`);
   group.id = `currentKeywordEditor`;
   group.setAttribute(`variant`, `vertical`);
@@ -2889,6 +2888,7 @@ function editKeyword(onUpdate, keyword) {
           input.value = next;
           input.setAttribute(`value`, next);
           syncCheckboxes();
+          showWarnings();
         });
 
         checkboxes.push({ code: option.value, checkbox });
@@ -2966,6 +2966,7 @@ function editKeyword(onUpdate, keyword) {
       const next = parameters.compose(params);
       input.value = next;
       input.setAttribute(`value`, next);
+      showWarnings();
     };
 
     parameters.fields.forEach(field => {
@@ -3112,6 +3113,52 @@ function editKeyword(onUpdate, keyword) {
   group.appendChild(createLabel(`Value`, `value`));
   group.appendChild(valueRow);
 
+  // Anything that looks wrong with the keyword as it stands - a value off its
+  // list, a keyword at the wrong level, a typo'd name - kept up to date as
+  // it's edited. Warnings only: Confirm still saves whatever's there.
+  const warningLines = document.createElement(`div`);
+  warningLines.setAttribute(`id`, `keywordWarnings`);
+  warningLines.style.fontSize = `0.9em`;
+  warningLines.style.marginTop = `0.35em`;
+  warningLines.style.color = `var(--vscode-editorWarning-foreground)`;
+  group.appendChild(warningLines);
+
+  // Hoisted, so the Value controls built above can call it as they change.
+  function showWarnings() {
+    const name = (nameSelect.value || ``).toUpperCase();
+    // Checked as it will be saved - see the uppercasing on Confirm below.
+    const value = uppercaseOutsideQuotes(valueRow.querySelector(`#value`).value || ``);
+    const warnings = keywordWarnings(name, value, { documentType: activeDocumentType, level });
+
+    warningLines.innerHTML = ``;
+    warnings.forEach(warning => {
+      const line = document.createElement(`div`);
+      line.style.display = `flex`;
+      line.style.gap = `0.35em`;
+
+      const icon = document.createElement(`span`);
+      icon.className = `codicon codicon-warning`;
+      line.appendChild(icon);
+
+      const text = document.createElement(`span`);
+      text.innerText = `${warning}.`;
+      line.appendChild(text);
+
+      warningLines.appendChild(line);
+    });
+    warningLines.style.display = warnings.length > 0 ? `block` : `none`;
+  }
+
+  // Typing in the box, or picking from a dropdown. Re-attached whenever the
+  // Value row is rebuilt for a different keyword.
+  const watchValue = () => {
+    const control = valueRow.querySelector(`#value`);
+    [`input`, `vsc-input`, `change`].forEach(eventName => control.addEventListener(eventName, showWarnings));
+  };
+
+  watchValue();
+  showWarnings();
+
   // Which control the Value row needs depends on which keyword is selected,
   // so picking a different name has to rebuild it in place - and the help
   // line above it describes whatever is selected now.
@@ -3129,6 +3176,8 @@ function editKeyword(onUpdate, keyword) {
     const replacement = createValueRow(newName, valueFitsKeyword(newName, currentValue) ? currentValue : ``);
     group.replaceChild(replacement, valueRow);
     valueRow = replacement;
+    watchValue();
+    showWarnings();
   });
 
   // Real DDS conditions a field/keyword with up to 3 OR'd groups (each an

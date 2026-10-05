@@ -11,6 +11,13 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 - Keywords with positional parameters get a field per parameter in the keyword editor: `WINDOW` gets start line, start position, lines, columns and a `*NOMSGLIN` checkbox (leave the start blank for `*DFT`); `CAxx`/`CFxx` get a response indicator dropdown and their text, quoted and escaped for you; `REFFLD` gets field, record format and file. The Value box above them stays editable and is still what's saved - editing a field rewrites it, and typing in it refills the fields. A value the fields can't represent, like a `WINDOW(WINREC)` reference, hides them and stays plain text, saved exactly as typed. Options the form has no field for, like `WINDOW`'s `*NORSTCSR`, are kept.
 - `SFLCTL`'s Value is a dropdown of the subfile records (`SFL`) in the file, and still accepts a name that isn't one of them.
 - `SFLSIZ` and `SFLPAG` get a number box, unless the value already there isn't a number.
+- Warnings for keywords that look wrong, shown under the Value field as you edit and as a warning icon (with the reasons on hover) in the keyword list: a value that isn't on the keyword's list (`COLOR(PURPLE)`, `DSPATR(HI ZZ)`), a keyword coded at a level it doesn't belong at (`SFLPAG` on a field), a name we don't know at all or one from the other file type (`PAGNBR` in a display file), a value on a keyword that takes none (`SFLCLR(YES)`), a count out of range, and parameters that don't add up (`CF12('Cancel')` with no response indicator). They're warnings only - Confirm still saves whatever you've entered - and say nothing about a keyword or value we don't have tabled.
+- `CHECK` offers a checkbox per code like `DSPATR`, since it takes a list (`CHECK(ME FE)`), and knows the codes it was missing: `FE`, `RZ`, `RLTB`, `VNE` and the modulus checks `M10`/`M10F`/`M11`/`M11F`.
+- `EDTCDE` offers `A`-`D`, `W` and the user-defined `5`-`9`; `DSPATR` offers `OID` and `SP`; `DATFMT` offers `*JOB`.
+
+### Fixed
+
+- Several `EDTCDE` and `CHECK` value descriptions were wrong. `EDTCDE(J)` through `M` were described as CR-for-negative when they use a trailing minus, and 1-4 had their commas wrong (1 and 2 have commas, 3 and 4 don't); `CHECK(ER)` is automatic record advance, not erase-to-end-of-field, and `CHECK(RB)` is right-adjust with blank fill.
 
 ## [0.5.1] - 2026-10-03
 

@@ -58,10 +58,9 @@ If the file's `DSPSIZ`/`PAGSIZ` defines more than one size (e.g. `*DS3` and
     to 9 indicators, coded as up to 3 groups of up to 3 — indicators
     within a group are ANDed together, and the groups themselves are ORed,
     matching real DDS (and SDA). Keywords whose value is a single code
-    (`COLOR`, `CHECK`, `EDTCDE`, `DATFMT`, `TIMFMT`, `SFLEND`) offer a
-    dropdown of the valid values with what each one means, and `DSPATR`
-    — whose value is a list of attributes — offers a checkbox per
-    attribute. Keywords with several positional parameters get a field
+    (`COLOR`, `EDTCDE`, `DATFMT`, `TIMFMT`, `SFLEND`) offer a dropdown of
+    the valid values with what each one means, and `DSPATR` and `CHECK`
+    — whose values are lists of codes — offer a checkbox per code. Keywords with several positional parameters get a field
     per parameter: `WINDOW` (start line, start position, lines, columns,
     `*NOMSGLIN`), `CAxx`/`CFxx` (response indicator and text) and
     `REFFLD` (field, record format, file). `SFLCTL` offers the file's
@@ -73,6 +72,13 @@ If the file's `DSPSIZ`/`PAGSIZ` defines more than one size (e.g. `*DS3` and
     taken from IBM's DDS references and specific to the kind of file
     you're editing — `COLOR` on a printer file is the colour a field is
     *printed* in, and a display-only keyword gets no line there at all.
+    Anything that looks wrong gets a warning under the value as you type,
+    and a warning icon in the keyword list with the reason on hover: a
+    value that isn't on the keyword's list, a keyword at the wrong level
+    (`SFLPAG` on a field), a misspelt name or one from the other file
+    type, a value on a keyword that takes none, or parameters that don't
+    add up (`CF12('Cancel')` with no indicator). Warnings never stop
+    you saving.
 
 ### Adding new fields
 
