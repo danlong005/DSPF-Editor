@@ -6,6 +6,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-10-06
+
 ### Added
 
 - Keywords with positional parameters get a field per parameter in the keyword editor: `WINDOW` gets start line, start position, lines, columns and a `*NOMSGLIN` checkbox (leave the start blank for `*DFT`); `CAxx`/`CFxx` get a response indicator dropdown and their text, quoted and escaped for you; `REFFLD` gets field, record format and file. The Value box above them stays editable and is still what's saved - editing a field rewrites it, and typing in it refills the fields. A value the fields can't represent, like a `WINDOW(WINREC)` reference, hides them and stays plain text, saved exactly as typed. Options the form has no field for, like `WINDOW`'s `*NORSTCSR`, are kept.
