@@ -303,8 +303,8 @@ function setWindowForFormat(chosenFormat) {
   const selectedFormat = activeDocument.formats.find(currentFormat => currentFormat.name === chosenFormat);
 
   if (!selectedFormat) {
-    // Not a real error the user needs to see (e.g. still typing into the
-    // format combobox) - just show nothing rather than leaving stale
+    // Not a real error the user needs to see (e.g. a format that's since
+    // been renamed or deleted) - just show nothing rather than leaving stale
     // content on screen or logging a visible error.
     clearRenderedScreen();
     return;
@@ -1449,19 +1449,33 @@ const DEFAULT_PAGE_SIZE = { height: 66, width: 132 };
  * @returns {{width: number, height: number}}
  */
 function getPageSize(globalFormat) {
-  if (activeDocumentType === `dds.prtf`) {
-    updateDspSizeToggle([]);
+  updateDspSizeToggle(activeDocumentType === `dds.prtf` ? [] : getDspSizes(globalFormat));
+  return currentPageSize(globalFormat);
+}
 
+/**
+ * @param {RecordInfo|undefined} globalFormat
+ */
+function getDspSizes(globalFormat) {
+  const displaySize = globalFormat?.keywords.find(keyword => keyword.name === `DSPSIZ`);
+  return displaySize ? parseDspSizes(displaySize.value) : [];
+}
+
+/**
+ * getPageSize without rebuilding the *DS3/*DS4 toggle - for callers that only
+ * need to know the size, not render at it.
+ * @param {RecordInfo|undefined} globalFormat
+ * @returns {{width: number, height: number}}
+ */
+function currentPageSize(globalFormat) {
+  if (activeDocumentType === `dds.prtf`) {
     const pageSize = globalFormat?.keywords.find(keyword => keyword.name === `PAGSIZ`);
     const size = pageSize ? parsePagSize(pageSize.value) : undefined;
 
     return size || DEFAULT_PAGE_SIZE;
   }
 
-  const displaySize = globalFormat?.keywords.find(keyword => keyword.name === `DSPSIZ`);
-  const sizes = displaySize ? parseDspSizes(displaySize.value) : [];
-
-  updateDspSizeToggle(sizes);
+  const sizes = getDspSizes(globalFormat);
 
   const chosenSize = sizes.length > 1
     ? (sizes.find(s => s.qualifier === dspSizeQualifier) || sizes[0])
@@ -1480,8 +1494,6 @@ function setTabs(recordFormats, setActiveTab) {
 
   const select = document.createElement(`vscode-single-select`);
   select.id = `recordFormatSelect`;
-  select.combobox = true;
-  select.filter = `contains`;
   select.style.width = `100%`;
 
   select.options = recordFormats.map(name => ({ label: name, value: name }));
@@ -1810,20 +1822,57 @@ function uniqueFieldName(baseName) {
  * adding a second field/constant right after the first landed it directly
  * on top, hiding whichever was added first and making it unclickable.
  * Defaults new ones to the row below whatever's already in the format,
- * so they land somewhere visibly free instead. Not overlap-proof against
- * every existing field (only checks the lowest row used), but fields can
- * always be dragged afterward - this only needs to beat "always (1, 1)".
+ * so they land somewhere visibly free instead.
+ *
+ * That row has to be on screen, though - the screen's last row (or a
+ * window's) is often already used (function keys, a message line), which
+ * would put the new field on row 25 of a 24-line screen. Past the bottom,
+ * it takes the first empty row instead, then the first gap in a row wide
+ * enough for it, and only if the screen is truly full the last row - on
+ * top of something, but still visible and draggable.
+ * @param {FieldInfo} newField
  */
-function nextAvailableFieldPosition() {
+function nextAvailableFieldPosition(newField) {
   const currentFormat = activeDocument && lastSelectedFormat
     ? activeDocument.formats.find(format => format.name === lastSelectedFormat)
     : undefined;
-  const fields = currentFormat ? currentFormat.fields : [];
+  // Hidden fields (and anything unpositioned) take up no space on screen.
+  const fields = (currentFormat ? currentFormat.fields : [])
+    .filter(field => field.displayType !== `hidden` && field.position.x > 0 && field.position.y > 0);
 
   if (fields.length === 0) { return { x: 1, y: 1 }; }
 
+  // A window's fields are coded relative to the window, so it's the
+  // window's size that bounds them, not the screen's.
+  const globalFormat = activeDocument.formats.find(format => format.name === GLOBAL_RECORD_FORMAT);
+  const { width, height } = getWindowSize(currentFormat) || currentPageSize(globalFormat);
+
   const maxY = Math.max(...fields.map(field => field.position.y));
-  return { x: 1, y: maxY + 1 };
+  if (maxY + 1 <= height) { return { x: 1, y: maxY + 1 }; }
+
+  const usedRows = new Set(fields.map(field => field.position.y));
+  for (let y = 1; y <= height; y++) {
+    if (!usedRows.has(y)) { return { x: 1, y }; }
+  }
+
+  // Every row has something on it - look for room between fields, keeping
+  // the blank column findTouchingFields expects on either side.
+  const length = fieldDisplayLength(newField);
+  for (let y = 1; y <= height; y++) {
+    const spans = fields
+      .filter(field => field.position.y === y)
+      .map(field => ({ start: field.position.x, end: field.position.x + fieldDisplayLength(field) - 1 }))
+      .sort((a, b) => a.start - b.start);
+
+    let x = 1;
+    for (const span of spans) {
+      if (x + length - 1 < span.start - 1) { return { x, y }; }
+      x = Math.max(x, span.end + 2);
+    }
+    if (x + length - 1 <= width) { return { x, y }; }
+  }
+
+  return { x: 1, y: height };
 }
 
 function createAddFieldPanel() {
@@ -1856,7 +1905,7 @@ function createAddFieldPanel() {
 
     button.onclick = () => {
       if (lastSelectedFormat) {
-        const fieldToSend = { ...field, position: nextAvailableFieldPosition() };
+        const fieldToSend = { ...field, position: nextAvailableFieldPosition(field) };
         // Constants have no name at all - nothing to de-duplicate.
         if (fieldToSend.name) {
           fieldToSend.name = uniqueFieldName(fieldToSend.name);

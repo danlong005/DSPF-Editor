@@ -1018,7 +1018,7 @@ describe(`setWindowForFormat error trapping`, () => {
     sandbox.setWindowForFormat(`FMT1`);
     expect(sandbox.document.getElementById(`recordFormatSidebar`).children.length).toBeGreaterThan(0);
 
-    // e.g. the user is still mid-typing a format name into the combobox.
+    // e.g. a format that's since been renamed or deleted.
     expect(() => sandbox.setWindowForFormat(`NOT_A_REAL_FORMAT`)).not.toThrow();
     expect(sandbox.document.getElementById(`recordFormatSidebar`).children.length).toBe(0);
     expect(sandbox.document.getElementById(`fieldInfoSidebar`).innerHTML).toBe(``);
@@ -1653,6 +1653,72 @@ describe(`nextAvailableFieldPosition`, () => {
     const second = sandbox.nextAvailableFieldPosition();
 
     expect(second).not.toEqual(first);
+  });
+
+  const field = (name: string, x: number, y: number, length = 5) =>
+    ({ name, type: `A`, length, decimals: 0, displayType: `output`, value: undefined, position: { x, y }, keywords: [], conditions: [] });
+  const newField = { name: `NEWFLD1`, type: `A`, length: 10, decimals: 0, displayType: `input`, keywords: [], conditions: [] };
+
+  it(`stays on a 24x80 screen when its last row is already used, taking the first empty row`, () => {
+    const sandbox = loadWebui();
+    const model = {
+      formats: [{
+        name: `FMT1`,
+        keywords: [],
+        fields: [field(`TITLE`, 1, 1), field(`HEAD`, 1, 2), field(`FKEYS`, 2, 24)],
+      }],
+    };
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.nextAvailableFieldPosition(newField)).toEqual({ x: 1, y: 3 });
+  });
+
+  it(`uses the selected DSPSIZ, so a 27x132 screen can go past row 24 but not past 27`, () => {
+    const sandbox = loadWebui();
+    const model = {
+      formats: [
+        { name: `_GLOBAL`, keywords: [{ name: `DSPSIZ`, value: `27 132 *DS4`, conditions: [] }], fields: [] },
+        { name: `FMT1`, keywords: [], fields: [field(`A`, 1, 1), field(`B`, 1, 24)] },
+      ],
+    };
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+    expect(sandbox.nextAvailableFieldPosition(newField)).toEqual({ x: 1, y: 25 });
+
+    model.formats[1].fields.push(field(`C`, 1, 27));
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+    expect(sandbox.nextAvailableFieldPosition(newField)).toEqual({ x: 1, y: 2 });
+  });
+
+  it(`finds room beside existing fields when every row is used, leaving a blank column`, () => {
+    const sandbox = loadWebui();
+    const fields = [];
+    for (let y = 1; y <= 24; y++) { fields.push(field(`F${y}`, 1, y, 70)); }
+    // Row 1 is full across, so the first gap wide enough is on row 2.
+    fields.push(field(`WIDE`, 72, 1, 9));
+    sandbox.loadDDS({ formats: [{ name: `FMT1`, keywords: [], fields }] }, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    expect(sandbox.nextAvailableFieldPosition({ ...newField, length: 5 })).toEqual({ x: 72, y: 2 });
+  });
+
+  it(`is bounded by a window's own size, not the screen's`, () => {
+    const sandbox = loadWebui();
+    const model = {
+      formats: [{
+        name: `WIN1`,
+        keywords: [{ name: `WINDOW`, value: `5 10 8 40`, conditions: [] }],
+        isWindow: true,
+        windowSize: { y: 5, x: 10, height: 8, width: 40 },
+        fields: [field(`A`, 1, 1), field(`B`, 1, 8)],
+      }],
+    };
+    sandbox.loadDDS(model, `dds.dspf`, false);
+    sandbox.setWindowForFormat(`WIN1`);
+
+    expect(sandbox.nextAvailableFieldPosition(newField)).toEqual({ x: 1, y: 2 });
   });
 });
 

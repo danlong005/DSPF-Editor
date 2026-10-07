@@ -17,12 +17,14 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Changed
 
+- The Selected Format dropdown is a plain dropdown now - pick a record format from the list instead of typing its name.
 - The keyword name list is now every keyword IBM documents for the kind of file you're editing - 230 for a display file (48 of them the command keys) and 70 for a printer file - instead of one shared list of 167. A printer file no longer offers `DSPATR` or the `CAxx`/`CFxx` keys, and a display file no longer offers `SPACEB`. Typing any other name still works.
 - Fourteen names that were never display or printer file keywords are out of the list: `ALIGN`, `DFRWRT`, `FORMFEED` and `OVERFLOW` (CRTPRTF/CRTDSPF parameters), `UDATE`, `UDAY`, `UMONTH` and `UYEAR` (RPG special words), `CONCAT` (a logical file keyword), and `DATA`, `END`, `HLPPGM` and `OUTPUT`. `TRNSPARENCY` is now spelled `TRNSPY`.
 - `PAGSIZ` is still read to size a printer file's page, but it isn't offered in the list any more, and coding it shows a warning that it isn't DDS - the compiler rejects it, and the real page size comes from CRTPRTF's `PAGESIZE`.
 
 ### Fixed
 
+- A new field or constant always lands on the screen (or inside its window). It used to go on the row below the lowest one in use, which put it past the bottom - row 25 of a 24x80 screen - whenever the last row was taken; now it takes the first empty row instead, or a gap in a row wide enough for it.
 - Several `EDTCDE` and `CHECK` value descriptions were wrong. `EDTCDE(J)` through `M` were described as CR-for-negative when they use a trailing minus, and 1-4 had their commas wrong (1 and 2 have commas, 3 and 4 don't); `CHECK(ER)` is automatic record advance, not erase-to-end-of-field, and `CHECK(RB)` is right-adjust with blank fill.
 
 ## [0.5.1] - 2026-10-03
