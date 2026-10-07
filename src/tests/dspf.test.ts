@@ -864,3 +864,64 @@ describe(`continuation lines (an entry that doesn't fit in positions 45-80)`, ()
     expect(reparsed.value).toBe(`Approx. ~50 records`);
   });
 });
+
+describe(`referenced fields (R in column 29)`, () => {
+  const parseFields = (lines: string[]) => {
+    const dds = new DisplayFile();
+    dds.parse([`     A                                      REF(CUSTMAST)`, `     A          R FMT1`, ...lines]);
+    return dds.formats.find(f => f.name === `FMT1`)!.fields;
+  };
+
+  /** The webview gets fields as JSON and sends them back the same way. */
+  const viaWebview = (field: FieldInfo): FieldInfo => JSON.parse(JSON.stringify(field));
+
+  // Columns 19-44: name, R, length, type, decimals, usage, line, position.
+  const definition = (lines: string[]) => lines[0].substring(0, 44);
+
+  it(`writes a referenced field back unchanged, with its R and blank length`, () => {
+    const source = `     A            CUSTNO    R        O  4 18`;
+    const [field] = parseFields([source]);
+
+    expect(field.reference).toBeDefined();
+    expect(definition(DisplayFile.getLinesForField(viaWebview(field)))).toBe(source);
+  });
+
+  it(`keeps a relative length and coded overrides on a referenced field`, () => {
+    const lines = [
+      `     A            CUSTNAME  R   +5   B  5 18`,
+      `     A            BALANCE   R    9Y 2O  6 18`,
+      `     A            ORDQTY    R     -1 O  7 18`,
+    ];
+    const fields = parseFields(lines);
+
+    fields.forEach((field, i) => {
+      expect(definition(DisplayFile.getLinesForField(viaWebview(field)))).toBe(lines[i]);
+    });
+  });
+
+  it(`moves a referenced field without touching its definition`, () => {
+    const [field] = parseFields([`     A            CUSTNO    R        O  4 18`]);
+    const moved = viaWebview(field);
+    moved.position = { x: 30, y: 10 };
+
+    expect(definition(DisplayFile.getLinesForField(moved))).toBe(`     A            CUSTNO    R        O 10 30`);
+  });
+
+  it(`writes a length typed in the editor over a referenced field's own`, () => {
+    const [field] = parseFields([`     A            CUSTNAME  R   +5   B  5 18`]);
+    const edited = viaWebview(field);
+    edited.length = 20;
+
+    expect(definition(DisplayFile.getLinesForField(edited))).toBe(`     A            CUSTNAME  R   20   B  5 18`);
+  });
+
+  it(`reads a referenced hidden field with no type or position`, () => {
+    const fields = parseFields([
+      `     A            CUSTNO    R        H`,
+      `     A            CUSTNAME  R        O  5 18`,
+    ]);
+
+    expect(fields.map(field => field.name)).toEqual([`CUSTNO`, `CUSTNAME`]);
+    expect(definition(DisplayFile.getLinesForField(viaWebview(fields[0])))).toBe(`     A            CUSTNO    R        H      `);
+  });
+});

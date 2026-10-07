@@ -1,4 +1,5 @@
      A                                      DSPSIZ(24 80 *DS3 27 132 *DS4)
+     A                                      REF(CUSTMAST)
      A          R HEADER
      A                                      CA01
      A                                  1 35'Ugly Duckling'
@@ -17,12 +18,13 @@
      A                                      USER
      A            F1NWFLD       11D 0I  5  2
      A                                      COLOR(YLW)
-     A            REFFLD1        0R 0O  4 18
+     A            REFFLD1   R        O  4 18
      A                                      REFFLD(CUSTNO)
      A                                      DSPATR(UL)
      A            NEWFLD1       10A  I  4 32
 
 
+     A            NEWFLD2       10A  I  8  7
      A          R CUSTOMER
      A            RECKEY         4A  H  1  1
      A                                  4  2'Customer #:'

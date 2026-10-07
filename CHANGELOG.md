@@ -24,6 +24,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ### Fixed
 
+- Editing or moving a referenced field (`R` in column 29) no longer breaks it. The `R` was dropped and a blank length written back as `0`, so `CUSTNO R O 4 18` came back as a 0-length field; a relative length like `+5` became an absolute `5`. The length, type and decimals are now written back exactly as coded unless you change them.
+- A hidden field is written without a line and position (it was getting `0 0`), and a field with no data type no longer gets a `0` in the decimals column.
 - A new field or constant always lands on the screen (or inside its window). It used to go on the row below the lowest one in use, which put it past the bottom - row 25 of a 24x80 screen - whenever the last row was taken; now it takes the first empty row instead, or a gap in a row wide enough for it.
 - Several `EDTCDE` and `CHECK` value descriptions were wrong. `EDTCDE(J)` through `M` were described as CR-for-negative when they use a trailing minus, and 1-4 had their commas wrong (1 and 2 have commas, 3 and 4 don't); `CHECK(ER)` is automatic record advance, not erase-to-end-of-field, and `CHECK(RB)` is right-adjust with blank fill.
 

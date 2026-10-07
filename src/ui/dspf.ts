@@ -206,6 +206,20 @@ export class DisplayFile {
                   break;
               }
 
+              // An R in column 29 takes the field's attributes from a
+              // database file (REF/REFFLD), so its length, type and
+              // decimals are often blank or relative (+5). Keep what was
+              // coded, to write back as-is unless they're edited.
+              if (line[28].toUpperCase() === `R`) {
+                if (/^[+-]/.test(len)) { this.currentField.length = 0; }
+                this.currentField.reference = {
+                  columns: line.substring(29, 37),
+                  length: this.currentField.length,
+                  type: this.currentField.type,
+                  decimals: this.currentField.decimals,
+                };
+              }
+
               DisplayFile.appendConditionLine(this.currentField.conditions, conditionals);
             }
             this.HandleKeywords(keywords, conditionals);
@@ -669,8 +683,10 @@ export class DisplayFile {
       hidden: "H"
     };
 
-    const x = String(field.position.x).padStart(3, ` `);
-    const y = String(field.position.y).padStart(3, ` `);
+    // A hidden field has no place on the screen, so no line or position.
+    const hidden = field.displayType === `hidden`;
+    const x = (hidden ? `` : String(field.position.x)).padStart(3, ` `);
+    const y = (hidden ? `` : String(field.position.y)).padStart(3, ` `);
     const displayType = FIELD_TYPE[field.displayType!];
 
     // A field's own conditioning (as opposed to a keyword's) is always a
@@ -690,11 +706,8 @@ export class DisplayFile {
       const prefix = `     A${conditionColumns}                      ${y}${x}`;
       newLines.push(...DisplayFile.wrapFunctions(`'${field.value ?? ``}'`, prefix));
     } else if (displayType && field.name) {
-      const definitionType = field.type;
-      const length = String(field.length).padStart(5);
-      const decimals = (field.type !== `A` ? String(field.decimals) : ``).padStart(2);
       newLines.push(
-        `     A${conditionColumns}  ${field.name.padEnd(10)} ${length}${definitionType}${decimals}${displayType}${y}${x}`,
+        `     A${conditionColumns}  ${field.name.padEnd(10)}${field.reference ? `R` : ` `}${DisplayFile.definitionColumns(field)}${displayType}${y}${x}`,
       );
     }
 
@@ -733,6 +746,28 @@ export class DisplayFile {
     }
 
     return range;
+  }
+
+  /**
+   * Positions 30-37: length, data type and decimals. A referenced field
+   * gets back exactly what was coded while none of them has been edited -
+   * the fields arrive from the webview as strings, so compare as numbers -
+   * and leaves blank anything it doesn't set, rather than writing 0 over
+   * what the referenced field supplies.
+   */
+  private static definitionColumns(field: FieldInfo): string {
+    const { reference } = field;
+    if (reference
+      && Number(field.length) === reference.length
+      && (field.type || ``) === (reference.type || ``)
+      && Number(field.decimals) === reference.decimals) {
+      return reference.columns;
+    }
+
+    const length = reference && !Number(field.length) ? `` : String(field.length);
+    const type = field.type || ``;
+    const decimals = type !== `` && type !== `A` ? String(field.decimals) : ``;
+    return `${length.padStart(5)}${type.padEnd(1)}${decimals.padStart(2)}`;
   }
 
   // TODO: test cases
@@ -934,6 +969,9 @@ export class FieldInfo {
   /** Set only for a printer-file field with no Y coded - tells
    * DisplayFile.assignPrinterLines() it may compute this field's line. */
   public needsPrinterLine: boolean = false;
+  /** Set for a field with R in column 29 - what its length, type and
+   * decimals columns held, and what they parsed to. */
+  public reference: { columns: string, length: number, type: string | undefined, decimals: number } | undefined;
   public keywordStrings: { keywordLines: string[], conditionalLines: { [lineIndex: number]: string } } = { keywordLines: [], conditionalLines: {} };
   public conditions: ConditionGroup[] = [];
   public keywords: Keyword[] = [];
