@@ -146,13 +146,17 @@ class FakeKonvaNode {
   type: string;
   config: any;
   children: FakeKonvaNode[] = [];
+  parent: FakeKonvaNode | undefined;
   listeners: Record<string, ((event?: any) => void)[]> = {};
 
   constructor(type: string, config: any = {}) {
     this.type = type;
     this.config = config;
   }
-  add(child: FakeKonvaNode) { this.children.push(child); return this; }
+  add(child: FakeKonvaNode) { this.children.push(child); child.parent = this; return this; }
+  getParent() { return this.parent; }
+  getAttr(name: string) { return this.config[name]; }
+  setAttr(name: string, value: any) { this.config[name] = value; return this; }
   on(type: string, handler: (event?: any) => void) { (this.listeners[type] ||= []).push(handler); }
   /** Test-only helper (not a real Konva API) to fire registered listeners. */
   trigger(type: string, event: any = {}) {
@@ -174,7 +178,10 @@ class FakeKonvaNode {
     }
     return undefined;
   }
-  destroy() { /* no-op */ }
+  destroy() {
+    if (this.parent) { this.parent.children = this.parent.children.filter(child => child !== this); }
+    this.parent = undefined;
+  }
   absolutePosition(pos?: { x: number, y: number }) {
     if (pos) { Object.assign(this.config, pos); }
     return { x: this.config.x, y: this.config.y };

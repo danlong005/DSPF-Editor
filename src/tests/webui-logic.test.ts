@@ -801,13 +801,36 @@ describe(`warning outlines after a field edit`, () => {
     const strokeOf = (id: string) => getLayer().findOne(`#${id}`).findOne(`#bg`).config.stroke;
     expect(strokeOf(`FMT1::A`)).toBeUndefined();
 
+    // Dragging also selects B, so its own outline is the green selection
+    // one rather than the red warning.
     dragTo(getLayer(), `FMT1::B`, 6); // A is cols 1-5, so B at 6 leaves no gap
     expect(strokeOf(`FMT1::A`)).toBe(`red`);
-    expect(strokeOf(`FMT1::B`)).toBe(`red`);
+    expect(strokeOf(`FMT1::B`)).toBe(`#3fb950`);
 
     dragTo(getLayer(), `FMT1::B`, 20);
     expect(strokeOf(`FMT1::A`)).toBeUndefined();
-    expect(strokeOf(`FMT1::B`)).toBeUndefined();
+    expect(strokeOf(`FMT1::B`)).toBe(`#3fb950`);
+  });
+
+  it(`outlines the clicked field in green, restoring the previous one's outline (red if it has a warning)`, () => {
+    const sandbox = loadWebui();
+    const touching = model();
+    touching.formats[0].fields[1].position.x = 6; // touching A, so both start red
+    sandbox.loadDDS(touching, `dds.dspf`, false);
+    const getLayer = captureLayer(sandbox);
+    sandbox.setWindowForFormat(`FMT1`);
+
+    const group = (id: string) => getLayer().findOne(`#${id}`);
+    const strokeOf = (id: string) => group(id).findOne(`#bg`).config.stroke;
+    expect(strokeOf(`FMT1::A`)).toBe(`red`);
+
+    group(`FMT1::A`).trigger(`pointerclick`);
+    expect(strokeOf(`FMT1::A`)).toBe(`#3fb950`);
+    expect(strokeOf(`FMT1::B`)).toBe(`red`);
+
+    group(`FMT1::B`).trigger(`pointerclick`);
+    expect(strokeOf(`FMT1::A`)).toBe(`red`);
+    expect(strokeOf(`FMT1::B`)).toBe(`#3fb950`);
   });
 });
 

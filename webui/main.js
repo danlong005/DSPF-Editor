@@ -58,6 +58,7 @@ const colours = {
 };
 
 const SELECTED_COLOUR = `#383838`;
+const SELECTED_OUTLINE_COLOUR = `#3fb950`;
 
 const GLOBAL_RECORD_FORMAT = `_GLOBAL`;
 
@@ -812,9 +813,8 @@ function refreshFieldWarnings() {
   format.fields.forEach(field => {
     const bg = existingStage.findOne(`#${elementId(format.name, field.name)}`)?.findOne(`#bg`);
     if (bg) {
-      const hasWarning = warnings.has(field);
-      bg.stroke(hasWarning ? colours.RED : undefined);
-      bg.strokeWidth(hasWarning ? 1 : 0);
+      bg.setAttr(`hasWarning`, warnings.has(field));
+      applyFieldOutline(bg);
     }
   });
 }
@@ -1275,6 +1275,7 @@ function getElement(fieldInfo, displayOnly = false, formatName = lastSelectedFor
     height: pxhPerChar,
     stroke: hasWarning ? colours.RED : undefined,
     strokeWidth: hasWarning ? 1 : 0,
+    hasWarning,
   }));
 
   // add text to the label
@@ -1542,6 +1543,23 @@ window.addEventListener("message", (event) => {
 let lastActiveKonvaElement;
 
 /**
+ * Sets a field's background outline: green while it's the selected field,
+ * otherwise red if it has a warning (see findFieldWarnings), else none.
+ * @param {Konva.Rect} bg
+ * @param {boolean} [isSelected]
+ */
+function applyFieldOutline(bg, isSelected = lastActiveKonvaElement !== undefined && bg.getParent() === lastActiveKonvaElement) {
+  if (isSelected) {
+    bg.stroke(SELECTED_OUTLINE_COLOUR);
+    bg.strokeWidth(2);
+  } else {
+    const hasWarning = bg.getAttr(`hasWarning`);
+    bg.stroke(hasWarning ? colours.RED : undefined);
+    bg.strokeWidth(hasWarning ? 1 : 0);
+  }
+}
+
+/**
  * 
  * @param {*} [konvaElement] 
  * @param {FieldInfo} [fieldInfo] 
@@ -1555,6 +1573,7 @@ function setActiveField(konvaElement, fieldInfo) {
 
     if (bg) {
       bg.fill(colours.BLK);
+      applyFieldOutline(bg, false);
     }
 
     lastActiveKonvaElement = undefined;
@@ -1565,6 +1584,7 @@ function setActiveField(konvaElement, fieldInfo) {
 
     const bg = lastActiveKonvaElement.findOne(`#bg`);
     bg.fill(SELECTED_COLOUR);
+    applyFieldOutline(bg, true);
 
     updateSelectedFieldSidebar(fieldInfo);
   } else {
