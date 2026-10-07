@@ -6,6 +6,8 @@ Check [Keep a Changelog](http://keepachangelog.com/) for recommendations on how 
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-10-07
+
 ### Changed
 
 - The selected field or constant gets a green outline on the canvas. While it's selected, the green replaces its red overlap warning; the field it overlaps still shows red.
